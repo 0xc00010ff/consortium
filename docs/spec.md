@@ -1,4 +1,4 @@
-# Consortium v2 specification
+# Consortium specification
 
 Consortium is a group chat of AI models. In the interface a table is called a conversation; the code and this document keep the word table. You write a message, every agent at the table answers it, and you decide what happens next.
 
@@ -6,7 +6,7 @@ Each exchange is a round. In a round, every agent answers, either all at the sam
 
 One setting, Interaction, changes how a table works, with three values. Independent: each agent reads only the host. Parallel: the agents read each other and answer at the same time. Round robin: the agents read each other and answer one after another in seat order, each reading the replies given before it in the same round. The data model keeps this as two fields, `interaction` (group or independent) and `turns` (parallel or roundRobin); Independent is independent plus parallel, and the interface never offers independent plus round robin.
 
-This document is the build plan for v2. It replaces `docs/v1-spec.md`. The shared types live in `lib/types.ts`. The design lives in `docs/design/round-by-round.html`. Follow the writing guideline and product principle in `CLAUDE.md`.
+This document is the build plan. The shared types live in `lib/types.ts`. Follow the writing guideline and product principle in `CLAUDE.md`.
 
 ## 1. How a table works
 
@@ -37,9 +37,9 @@ The browser owns the table. The server only calls models.
 
 - **Store (client, `lib/engine/store.ts`).** `createTableStore(table, speak)` holds a `Table`, runs rounds and private messages by calling a `SpeakFn`, and publishes a new `Table` object after every change. It throttles streaming text to about every 50 ms.
 - **Context builders (`lib/engine/context.ts`).** Pure functions that turn a `Table` into a `SpeakRequest` for an agent in a round, for an arbiter in a round, and for a private reply.
-- **Speak client (`lib/client/speak.ts`)** and **speak route (`app/api/speak/route.ts`)**: unchanged in shape from v1. The route calls `streamText` with the browsing tools when the participant has browsing on, streams `SpeakEvent` lines, limits a call to 5 minutes, and in mock mode writes scripted replies.
+- **Speak client (`lib/client/speak.ts`)** and **speak route (`app/api/speak/route.ts`)**: The route calls `streamText` with the browsing tools when the participant has browsing on, streams `SpeakEvent` lines, limits a call to 5 minutes, and in mock mode writes scripted replies.
 - **Models route (`app/api/models/route.ts`)**: unchanged, except the defaults field is now `{ seats, arbiter }`.
-- **Storage (`lib/ui/storage.ts`)**: tables saved to localStorage under a `consortium.v2.` prefix, with a throttle and a fallback that drops attachments when the quota is full. Old `consortium.v1.` keys are ignored and may be removed.
+- **Storage (`lib/ui/storage.ts`)**: a client of `/api/conversations`, with a throttled save, a five-second poll for changes made elsewhere, and a merge on conflict. The server keeps each conversation as a file under `~/.consortium/conversations/`.
 
 Mock mode is on when `AI_GATEWAY_API_KEY` is not set, or when `CONSORTIUM_MOCK=1`.
 
@@ -161,7 +161,7 @@ Mock replies must make every flow work with no key, and read like plausible shor
 
 ## 7. Interface
 
-Follow `docs/design/round-by-round.html` for the layout, the structure and the copy. For the look, do not copy its Google styling. The target is a minimal, high-quality desktop tool in the vein of ChatGPT, Cursor, Claude Code, Codex and GitHub: neutral colors, 1 px borders instead of elevation, small radii (6 to 8 px, with pills only for small chips), compact controls, a system font stack, and no drawn table or seating imagery. Light theme by default, dark following the system setting.
+The target is a minimal, high-quality desktop tool in the vein of ChatGPT, Cursor, Claude Code, Codex and GitHub: neutral colors, 1 px borders instead of elevation, small radii (6 to 8 px, with pills only for small chips), compact controls, a system font stack, and no drawn table or seating imagery. Light theme by default, dark following the system setting.
 
 - **Type:** the system UI stack (`-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`) at 14 px for the interface and 15 px for message text, with `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace` for tokens and timings. No web fonts and no icon font. Icons are small inline SVGs with 1.5 px strokes, in the style of Lucide.
 - **Color, light:** page `#ffffff`, sidebar and panels `#f7f7f8`, borders `#e3e3e3`, text `#111111`, secondary text `#6b6b6b`, hover `#ececec`, selected row `#e8e8e8`, the primary button near-black with white text, links and focus rings a restrained blue `#2f6fed`. Agent colors stay muted and readable on both themes.
@@ -227,6 +227,6 @@ export function tableToMarkdown(table: Table): string;
 
 Two builders work at the same time.
 
-- **Engine builder:** `lib/engine/**`, `lib/client/**`, `lib/server/**`, `app/api/**`, their tests, `vitest.config.mts`, `.env.example`. Delete v1 engine files that v2 does not use.
-- **Interface builder:** `app/**` outside `app/api`, `components/**`, `lib/ui/**`, `public/**`. Delete v1 interface files that v2 does not use.
+- **Engine builder:** `lib/engine/**`, `lib/client/**`, `lib/server/**`, `app/api/**`, their tests, `vitest.config.mts`, `.env.example`. 
+- **Interface builder:** `app/**` outside `app/api`, `components/**`, `lib/ui/**`, `public/**`. 
 - **Shared:** `lib/types.ts`. Add fields only, and list every change in your report.

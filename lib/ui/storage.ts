@@ -3,18 +3,11 @@
 // cache: the list of summaries for the sidebar, which reloads every 5 seconds
 // while the page is visible. Writes are throttled by the caller through
 // createSaver, and tables.ts decides what to do with conflicts.
-//
-// Tables used to live in localStorage. On the first load after the move, any
-// table still there is sent to the server once and then removed.
 
 import type { Table, TableResponse, TableSummary, TablesResponse } from "@/lib/types";
 
 export type { TableSummary };
 
-export const PREFIX = "consortium.v2.";
-const OLD_INDEX_KEY = `${PREFIX}index`;
-const OLD_TABLE_PREFIX = `${PREFIX}table.`;
-const OLD_V1_PREFIX = "consortium.v1.";
 const API = "/api/conversations";
 const POLL_MS = 5000;
 // Browsers refuse a keepalive request with a larger body.
@@ -182,19 +175,11 @@ async function refresh() {
 
 let started = false;
 
-// Loads the list, moves any tables left in localStorage to the server, then
-// reloads every 5 seconds while the page is visible.
+// Loads the list, then reloads it every 5 seconds while the page is visible.
 export function startSync() {
   if (started || typeof window === "undefined") return;
   started = true;
-  removeV1Keys();
-  void (async () => {
-    const first = await reloadIndex();
-    if (first && oldTableKeys().length) {
-      await migrateTables(first.tables);
-      await reloadIndex();
-    }
-  })();
+  void reloadIndex();
   window.setInterval(() => {
     if (document.visibilityState === "visible") void refresh();
   }, POLL_MS);
@@ -278,76 +263,6 @@ export async function removeTable(id: string, after?: Promise<unknown> | null): 
 // a table. This only fills in fields an older saved copy may lack.
 function normalizeTable(table: Table): Table {
   return { ...table, arbiters: table.arbiters ?? [], rounds: table.rounds ?? [], privateThreads: table.privateThreads ?? {} };
-}
-
-// ---------- moving tables out of localStorage ----------
-
-function oldTableKeys(): string[] {
-  try {
-    const keys: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const key = window.localStorage.key(i);
-      if (key?.startsWith(OLD_TABLE_PREFIX)) keys.push(key);
-    }
-    return keys;
-  } catch {
-    return [];
-  }
-}
-
-function removeKey(key: string) {
-  try {
-    window.localStorage.removeItem(key);
-  } catch {
-    // Storage is unavailable. The key is tried again next time.
-  }
-}
-
-// Sends each table the server does not have yet, and removes the local copy
-// once the server holds it. When the server cannot be reached, the rest wait
-// for the next page load.
-async function migrateTables(onServer: TableSummary[]) {
-  const have = new Set(onServer.map((s) => s.id));
-  for (const key of oldTableKeys()) {
-    let table: Table | null = null;
-    try {
-      const saved = JSON.parse(window.localStorage.getItem(key) ?? "null") as { table?: Table } | null;
-      if (saved?.table?.id) table = normalizeTable(saved.table);
-    } catch {
-      table = null; // unreadable, so nothing could open it
-    }
-    if (!table || have.has(table.id)) {
-      removeKey(key);
-      continue;
-    }
-    try {
-      const res = await request(tableUrl(table.id), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ table } satisfies TableResponse),
-      });
-      // 409 means the server already has a newer copy.
-      if (res.ok || res.status === 409) removeKey(key);
-      else console.warn(`The saved conversation ${table.id} could not be moved to the server.`, (await errorFrom(res)).message);
-    } catch {
-      return;
-    }
-  }
-  if (oldTableKeys().length === 0) removeKey(OLD_INDEX_KEY);
-}
-
-// Version 1 sessions cannot be opened by this version, so their keys only use space.
-function removeV1Keys() {
-  try {
-    const old: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const key = window.localStorage.key(i);
-      if (key?.startsWith(OLD_V1_PREFIX)) old.push(key);
-    }
-    old.forEach(removeKey);
-  } catch {
-    // Storage is unavailable. Nothing to clean up.
-  }
 }
 
 // ---------- throttled saving ----------

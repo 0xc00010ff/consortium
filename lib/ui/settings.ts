@@ -35,7 +35,7 @@ export async function saveSettings(update: SettingsUpdate): Promise<SettingsResp
 
 // The layout's inline script reads this key before the first paint, so keep
 // the two in step. "system" is stored as no key at all.
-export const THEME_KEY = "consortium.v2.theme";
+export const THEME_KEY = "consortium.theme";
 
 export type Theme = "system" | "light" | "dark";
 
@@ -66,7 +66,7 @@ export function setTheme(theme: Theme) {
 // ---------- the default setup for new tables ----------
 
 // The id of a preset, built-in or saved. No key means the server's default.
-export const DEFAULT_PRESET_KEY = "consortium.v2.defaultPreset";
+export const DEFAULT_PRESET_KEY = "consortium.defaultPreset";
 
 export function readDefaultPreset(): string {
   try {

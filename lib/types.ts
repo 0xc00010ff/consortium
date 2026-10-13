@@ -1,4 +1,4 @@
-// Shared contract for Consortium v2.
+// Shared contract for Consortium.
 // The engine (lib/engine, lib/server, app/api) and the interface (app,
 // components, lib/ui) both depend on this file. Change it only by adding
 // fields, and list any change in your report.

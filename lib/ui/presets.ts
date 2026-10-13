@@ -5,9 +5,6 @@
 // the whole list on disk (see app/api/presets). Each change here is applied to
 // a fresh copy of the server's list and written back whole, so presets saved
 // in another tab are kept, and the list reloads along with the tables.
-//
-// Presets used to live in localStorage. The first save after the move merges
-// any left there into the server's list by id, then removes them.
 
 import { useSyncExternalStore } from "react";
 import {
@@ -23,19 +20,17 @@ import {
 } from "@/lib/types";
 import { SUMMARIZER_INSTRUCTIONS, SUMMARIZER_NAME } from "./engine";
 import { uid } from "./format";
-import { createStore, describeFailure, errorFrom, onRefresh, PREFIX, request, setWarning, startSync } from "./storage";
+import { createStore, describeFailure, errorFrom, onRefresh, request, setWarning, startSync } from "./storage";
 
 export type { Preset };
 
 const API = "/api/presets";
-const OLD_PRESETS_KEY = `${PREFIX}presets`;
 const EMPTY: Preset[] = [];
 
 type Change = (list: Preset[]) => Preset[];
 
 let server: Preset[] = EMPTY; // the list as last read from or written to the server
 let queue: Change[] = []; // changes made here and not yet saved
-let fromLocalStorage: Preset[] | null = null; // presets still waiting to move to the server
 let syncing = false;
 let syncAgain = false;
 
@@ -49,7 +44,6 @@ function start() {
   if (started || typeof window === "undefined") return;
   started = true;
   startSync();
-  fromLocalStorage = readOldPresets();
   setTimeout(() => void sync(), 0);
 }
 
@@ -57,26 +51,9 @@ onRefresh(() => {
   if (started) void sync();
 });
 
-function readOldPresets(): Preset[] | null {
-  try {
-    const raw = window.localStorage.getItem(OLD_PRESETS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as Preset[]) : [];
-  } catch {
-    return null;
-  }
-}
-
-function withOldPresets(list: Preset[]): Preset[] {
-  if (!fromLocalStorage) return list;
-  const ids = new Set(list.map((p) => p.id));
-  return [...list, ...fromLocalStorage.filter((p) => !ids.has(p.id))];
-}
-
 // The server's list with this page's unsaved changes on top.
 function show() {
-  const next = queue.reduce((list, change) => change(list), withOldPresets(server));
+  const next = queue.reduce((list, change) => change(list), server);
   if (JSON.stringify(next) !== JSON.stringify(presetsStore.get())) presetsStore.set(next);
 }
 
@@ -93,9 +70,8 @@ async function sync() {
     if (!res.ok) throw await errorFrom(res);
     let list = ((await res.json()) as PresetsResponse).presets;
     const changes = queue.length;
-    const migrating = fromLocalStorage !== null;
-    if (changes || migrating) {
-      const next = queue.slice(0, changes).reduce((l, change) => change(l), withOldPresets(list));
+    if (changes) {
+      const next = queue.slice(0, changes).reduce((l, change) => change(l), list);
       const put = await request(API, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -104,14 +80,6 @@ async function sync() {
       if (!put.ok) throw await errorFrom(put);
       list = ((await put.json()) as PresetsResponse).presets;
       queue = queue.slice(changes);
-      if (migrating) {
-        fromLocalStorage = null;
-        try {
-          window.localStorage.removeItem(OLD_PRESETS_KEY);
-        } catch {
-          // Storage is unavailable. The presets are on the server either way.
-        }
-      }
     }
     server = list;
     setWarning("presets", null);

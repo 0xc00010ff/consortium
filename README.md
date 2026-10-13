@@ -76,8 +76,7 @@ npm run build
 
 ## Where things are
 
-- `docs/v2-spec.md` is the specification for this version.
-- `docs/design/round-by-round.html` holds the design, which the app follows for layout and copy.
+- `docs/spec.md` is the specification.
 - `lib/types.ts` is the shared data model.
 - `lib/engine/` holds the table store, the prompts the models read, and the markdown export.
 - `lib/server/` and `app/api/` call the models through the AI Gateway or a provider's API (`lib/server/providers.ts`), or through Claude Code and Codex in `lib/server/cli.ts`, with the sample replies in `lib/server/mock.ts`. `lib/server/settings.ts` reads and writes the settings file, and `lib/server/conversations.ts` and `lib/server/presets.ts` save conversations and presets under the same folder, served by `app/api/conversations` and `app/api/presets`.
