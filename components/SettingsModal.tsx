@@ -24,6 +24,18 @@ const KEY_LABELS: Record<KeyName, string> = {
   xai: "xAI",
 };
 
+// The environment variable each key can also come from, shown in a tooltip.
+const KEY_ENV: Record<KeyName, string> = {
+  gateway: "AI_GATEWAY_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
+  google: "GOOGLE_GENERATIVE_AI_API_KEY or GEMINI_API_KEY",
+  xai: "XAI_API_KEY",
+};
+
+const PROVIDER_KEYS = KEY_NAMES.filter((k) => k !== "gateway");
+const GATEWAY_URL = "https://vercel.com/ai-gateway";
+
 const TOOL_KEYS: Record<ToolStatus["id"], "claude" | "codex"> = {
   "cli/claude-code": "claude",
   "cli/codex": "codex",
@@ -120,6 +132,9 @@ function ServerSettings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<Partial<Record<KeyName, string>>>({});
+  // null until the person opens or closes the provider keys themselves; then
+  // the section starts open when a provider key is set.
+  const [showProviders, setShowProviders] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -196,12 +211,26 @@ function ServerSettings() {
   }
 
   const anyKey = KEY_NAMES.some((k) => settings.keys[k]?.set);
+  const providersOpen = showProviders ?? PROVIDER_KEYS.some((k) => settings.keys[k]?.set);
+  const keyRow = (name: KeyName) => (
+    <KeyRow
+      key={name}
+      label={KEY_LABELS[name]}
+      env={KEY_ENV[name]}
+      status={settings.keys[name] ?? { set: false }}
+      revealed={revealed[name]}
+      saving={saving}
+      onShow={() => reveal(name)}
+      onHide={() => setRevealed((r) => without(r, name))}
+      onSave={(value) => saveKey(name, value)}
+      onClear={() => saveKey(name, null)}
+    />
+  );
 
   return (
     <>
       <section className="psec">
         <h3 className="lbl">API keys</h3>
-        <p className="set-note">A gateway key covers every model and web search. A provider key covers that provider&rsquo;s models.</p>
         {!settings.webSearch && anyKey ? <p className="set-note">Web search is off without a gateway key.</p> : null}
         {error ? (
           <p className="set-error" role="alert">
@@ -209,20 +238,25 @@ function ServerSettings() {
           </p>
         ) : null}
         <ul className="set-list">
-          {KEY_NAMES.map((name) => (
-            <KeyRow
-              key={name}
-              label={KEY_LABELS[name]}
-              status={settings.keys[name] ?? { set: false }}
-              revealed={revealed[name]}
-              saving={saving}
-              onShow={() => reveal(name)}
-              onHide={() => setRevealed((r) => without(r, name))}
-              onSave={(value) => saveKey(name, value)}
-              onClear={() => saveKey(name, null)}
-            />
-          ))}
+          {keyRow("gateway")}
+          <li className="set-sub">
+            Recommended. One key covers every model and web search. Get one at{" "}
+            <a href={GATEWAY_URL} target="_blank" rel="noreferrer">
+              vercel.com/ai-gateway
+            </a>
+            .
+          </li>
         </ul>
+        <button
+          type="button"
+          className="text-btn set-collapse"
+          aria-expanded={providersOpen}
+          onClick={() => setShowProviders(!providersOpen)}
+        >
+          <Icon name={providersOpen ? "chevronDown" : "chevronRight"} size={14} />
+          Use individual provider keys
+        </button>
+        {providersOpen ? <ul className="set-list">{PROVIDER_KEYS.map(keyRow)}</ul> : null}
       </section>
       {settings.tools.length ? (
         <section className="psec">
@@ -245,6 +279,7 @@ function ServerSettings() {
 
 function KeyRow({
   label,
+  env,
   status,
   revealed,
   saving,
@@ -254,6 +289,7 @@ function KeyRow({
   onClear,
 }: {
   label: string;
+  env: string; // the environment variable the key can also come from
   status: SettingsResponse["keys"][KeyName];
   revealed?: string;
   saving: boolean;
@@ -284,7 +320,12 @@ function KeyRow({
   return (
     <li className="set-row">
       <div className="set-line">
-        <span className="set-name">{label}</span>
+        <span className="set-name">
+          {label}
+          <span className="set-info" role="img" aria-label={`Environment variable ${env}`} title={`Environment variable: ${env}`}>
+            <Icon name="info" size={14} />
+          </span>
+        </span>
         <span className="set-state">{state}</span>
         {status.set ? (
           <button

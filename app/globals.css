@@ -950,6 +950,38 @@ textarea::placeholder {
   color: var(--text-2);
 }
 
+/* The environment variable hint next to a key's name. */
+.set-info {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-left: 6px;
+  color: var(--text-3);
+  cursor: help;
+}
+
+/* The note under the gateway key, with its link. */
+.set-sub {
+  margin-top: -4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.set-sub a {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* The disclosure that shows the provider keys. */
+.set-collapse {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0;
+  padding: 0;
+  font-size: 13px;
+}
+
 .set-error {
   margin: 0;
   font-size: 12px;
