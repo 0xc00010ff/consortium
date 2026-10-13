@@ -159,10 +159,15 @@ function newFixture(): Table {
 // ---------- a Group table after two rounds ----------
 
 // Round 1 ran in parallel in letter order. Before round 2 the host moved C to
-// the front and switched to round robin, so round 2 ran C, A, B, D.
+// the front, switched to round robin, named B "Skeptic" and made C teal, so
+// round 2 ran C, A, B, D and round 1 keeps B's model name and C's purple.
 function groupFixture(): Table {
   const s = seats(["A", "B", "C", "D"], ["D"]);
-  const s2 = seats(["C", "A", "B", "D"], ["D"]);
+  const s2 = seats(["C", "A", "B", "D"], ["D"]).map((seat): Seat => {
+    if (seat.id === "B") return { ...seat, name: "Skeptic" };
+    if (seat.id === "C") return { ...seat, color: "teal" };
+    return seat;
+  });
   const r1 = round(1, {
     seats: s,
     arbiters: [TRACKER],

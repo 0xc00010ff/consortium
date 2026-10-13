@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { Attachment, ToolActivity } from "@/lib/types";
+import type { Attachment, SeatColor, ToolActivity } from "@/lib/types";
 import { displayUrl } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
 import { Icon, type IconName } from "./Icon";
@@ -12,9 +12,10 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
 
 // ---------- avatars ----------
 
-export function SeatAvatar({ id, small }: { id: string; small?: boolean }) {
+// The agent's letter on its color. Use seatColor() from lib/ui/view for `color`.
+export function SeatAvatar({ id, color, small }: { id: string; color: SeatColor; small?: boolean }) {
   return (
-    <span className={cx("av", `seat-${id.toLowerCase()}`, small && "sm")} aria-hidden="true">
+    <span className={cx("av", `color-${color}`, small && "sm")} aria-hidden="true">
       {id}
     </span>
   );
@@ -130,8 +131,9 @@ export function Toggle<T extends string>({
 
 // ---------- menus ----------
 
-// A small popover menu under its button, aligned to the button's right edge.
-// It flips above the button when there is no room below. Arrow keys move
+// A small popover menu under its button, aligned to the button's right edge,
+// or its left edge with align="start". It flips above the button when there
+// is no room below. It opens with focus on the checked item, if any. Arrow keys move
 // between items, and ArrowRight reaches an item's side button (marked
 // data-side, inside a .menu-line). Escape or Tab closes it and returns focus
 // to the button; so does onClose(true) from the caller. A press outside, a
@@ -139,11 +141,13 @@ export function Toggle<T extends string>({
 export function Menu({
   anchor,
   label,
+  align = "end",
   onClose,
   children,
 }: {
   anchor: HTMLElement;
   label: string;
+  align?: "start" | "end";
   onClose: (refocus: boolean) => void;
   children: ReactNode;
 }) {
@@ -162,12 +166,18 @@ export function Menu({
     const height = el.offsetHeight;
     const below = a.bottom + 4;
     el.style.top = `${below + height > window.innerHeight - 8 ? Math.max(8, a.top - 4 - height) : below}px`;
-    el.style.right = `${Math.max(8, window.innerWidth - a.right)}px`;
+    if (align === "start") {
+      el.style.right = "auto";
+      el.style.left = `${Math.max(8, Math.min(a.left, window.innerWidth - el.offsetWidth - 8))}px`;
+    } else {
+      el.style.right = `${Math.max(8, window.innerWidth - a.right)}px`;
+    }
     el.style.visibility = "visible";
   });
 
   useLayoutEffect(() => {
-    primaryItems(ref.current)[0]?.focus();
+    const items = primaryItems(ref.current);
+    (items.find((item) => item.getAttribute("aria-checked") === "true") ?? items[0])?.focus();
   }, []);
 
   useEffect(() => {
@@ -199,7 +209,7 @@ export function Menu({
     const active = document.activeElement as HTMLElement | null;
     const line = active?.closest(".menu-line");
     if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-      const target = line?.querySelector<HTMLElement>(e.key === "ArrowRight" ? "[data-side]" : '[role="menuitem"]:not([data-side])');
+      const target = line?.querySelector<HTMLElement>(e.key === "ArrowRight" ? "[data-side]" : ITEM);
       if (target) {
         e.preventDefault();
         target.focus();
@@ -207,7 +217,7 @@ export function Menu({
       return;
     }
     const items = primaryItems(ref.current);
-    const current = active?.hasAttribute("data-side") ? line?.querySelector<HTMLElement>('[role="menuitem"]:not([data-side])') : active;
+    const current = active?.hasAttribute("data-side") ? line?.querySelector<HTMLElement>(ITEM) : active;
     const at = items.indexOf(current as HTMLElement);
     let next: number | null = null;
     if (e.key === "ArrowDown") next = (at + 1) % items.length;
@@ -226,8 +236,10 @@ export function Menu({
   );
 }
 
+const ITEM = '[role="menuitem"]:not([data-side]), [role="menuitemradio"]';
+
 function primaryItems(menu: HTMLElement | null): HTMLElement[] {
-  return [...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([data-side])') ?? [])];
+  return [...(menu?.querySelectorAll<HTMLElement>(ITEM) ?? [])];
 }
 
 // ---------- attachments ----------

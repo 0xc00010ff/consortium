@@ -3,16 +3,19 @@
 import { useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes } from "react";
 import {
   MAKER_LABELS,
+  SEAT_COLORS,
   type Arbiter,
   type Maker,
   type ModelInfo,
   type ModelsResponse,
   type Seat,
+  type SeatColor,
   type SeatId,
   type Table,
   type TableEdit,
 } from "@/lib/types";
 import {
+  COLOR_LABELS,
   freshSeatLetter,
   MAX_SEATS,
   MODE_LABELS,
@@ -21,6 +24,8 @@ import {
   moveItem,
   newArbiter,
   newSeat,
+  seatColor,
+  seatName,
   withModel,
 } from "@/lib/ui/view";
 import { applyPreset, deletePreset, savePreset, usePresets } from "@/lib/ui/presets";
@@ -144,15 +149,8 @@ export function ParticipantsPanel({
                     >
                       <Icon name="grip" />
                     </button>
-                    <SeatAvatar id={seat.id} />
-                    <ModelSelect
-                      label={`Model for Agent ${seat.id}`}
-                      value={seat.modelId}
-                      currentName={seat.modelName}
-                      models={models}
-                      disabled={disabled}
-                      onChange={(id) => setSeat(seat.id, withModel(seat, models, id))}
-                    />
+                    <ColorButton seat={seat} disabled={disabled} onChange={(color) => setSeat(seat.id, { ...seat, color })} />
+                    <NameField seat={seat} disabled={disabled} onChange={(name) => setSeat(seat.id, { ...seat, name })} />
                     <WebToggle
                       on={seat.browsing}
                       onChange={(browsing) => setSeat(seat.id, { ...seat, browsing })}
@@ -171,6 +169,16 @@ export function ParticipantsPanel({
                       label={`Remove Agent ${seat.id}`}
                       onClick={() => removeSeat(seat)}
                       disabled={disabled || table.seats.length <= 1}
+                    />
+                  </div>
+                  <div className={cx("prow agent-model", seat.modelId.startsWith("cli/") && "two")}>
+                    <ModelSelect
+                      label={`Model for Agent ${seat.id}`}
+                      value={seat.modelId}
+                      currentName={seat.modelName}
+                      models={models}
+                      disabled={disabled}
+                      onChange={(id) => setSeat(seat.id, withModel(seat, models, id))}
                     />
                     <ToolModelSelect
                       participant={seat}
@@ -290,9 +298,6 @@ export function ParticipantsPanel({
   );
 }
 
-// Reorders the agents. Dragging a row's handle draws a line where the row will
-// land and reorders the list once, on drop. Escape cancels a drag. With focus
-// on the handle, the up and down arrow keys move the row one step each.
 // Saved setups for this panel. Choosing one replaces the whole setup.
 function Presets({ table, disabled, onEdit }: { table: Table; disabled: boolean; onEdit: (edit: TableEdit) => void }) {
   const presets = usePresets();
@@ -378,6 +383,9 @@ function Presets({ table, disabled, onEdit }: { table: Table; disabled: boolean;
   );
 }
 
+// Reorders the agents. Dragging a row's handle draws a line where the row will
+// land and reorders the list once, on drop. Escape cancels a drag. With focus
+// on the handle, the up and down arrow keys move the row one step each.
 function useAgentOrder(seats: Seat[], disabled: boolean, onReorder: (seats: Seat[]) => void) {
   const listRef = useRef<HTMLUListElement>(null);
   // The row being dragged and the index it would take in the list without it.
@@ -469,6 +477,92 @@ function useAgentOrder(seats: Seat[], disabled: boolean, onReorder: (seats: Seat
   }
 
   return { listRef, sorting: Boolean(active), rowClass, dragHandle, announcement };
+}
+
+// The agent's avatar as a button that opens a menu of the eight colors.
+// Choosing the letter's own color stores no choice.
+function ColorButton({ seat, disabled, onChange }: { seat: Seat; disabled: boolean; onChange: (color: SeatColor | undefined) => void }) {
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const open = anchor !== null && !disabled;
+  const current = seatColor(seat);
+
+  function close(refocus: boolean) {
+    if (refocus) anchor?.focus();
+    setAnchor(null);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="av-btn"
+        aria-label={`Color for Agent ${seat.id}`}
+        title="Color"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={(e) => setAnchor(open ? null : e.currentTarget)}
+      >
+        <SeatAvatar id={seat.id} color={current} />
+      </button>
+      {open ? (
+        <Menu anchor={anchor} label={`Color for Agent ${seat.id}`} align="start" onClose={close}>
+          {SEAT_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              role="menuitemradio"
+              aria-checked={color === current}
+              tabIndex={-1}
+              onClick={() => {
+                close(true);
+                if (color !== current) onChange(color === seatColor({ id: seat.id }) ? undefined : color);
+              }}
+            >
+              <span className={cx("swatch", `color-${color}`)} aria-hidden="true" />
+              <span className="menu-label">{COLOR_LABELS[color]}</span>
+              {color === current ? <Icon name="check" size={14} /> : null}
+            </button>
+          ))}
+        </Menu>
+      ) : null}
+    </>
+  );
+}
+
+// The host's name for an agent. It saves on blur or Enter, and Escape puts
+// back the saved name. A blank name stores no name, so the model name shows.
+function NameField({ seat, disabled, onChange }: { seat: Seat; disabled: boolean; onChange: (name: string | undefined) => void }) {
+  // What the host has typed since the last save, or null when nothing is pending.
+  const [draft, setDraft] = useState<string | null>(null);
+
+  function save() {
+    if (draft === null) return;
+    setDraft(null);
+    const name = draft.trim() || undefined;
+    if (name !== seatName(seat)) onChange(name);
+  }
+
+  return (
+    <input
+      className="input"
+      value={draft ?? seat.name ?? ""}
+      placeholder={seat.modelName}
+      aria-label={`Name of Agent ${seat.id}`}
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+          e.preventDefault();
+          save();
+        } else if (e.key === "Escape" && draft !== null) {
+          e.preventDefault();
+          setDraft(null);
+        }
+      }}
+    />
+  );
 }
 
 // The prompt for one agent. Closed, it shows "Add prompt" or the prompt's

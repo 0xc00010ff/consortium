@@ -6,7 +6,19 @@ import { copyToClipboard } from "@/lib/ui/download";
 import { plural, replyStats } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
 import type { StickToBottom } from "@/lib/ui/useStickToBottom";
-import { arbiterIn, isBusy, isSeatId, modeLabel, modeOf, privateAfter, roundReplyCount, seatIn } from "@/lib/ui/view";
+import {
+  arbiterIn,
+  isBusy,
+  isSeatId,
+  modeLabel,
+  modeOf,
+  privateAfter,
+  roundReplyCount,
+  seatColor,
+  seatDisplayName,
+  seatIn,
+  seatName,
+} from "@/lib/ui/view";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { ArbiterAvatar, cx, HostAvatar, SeatAvatar, Thumbs, ToolChips } from "./ui";
@@ -178,14 +190,18 @@ function RoundView({
             const atTable = seatId !== null && table.seats.some((s) => s.id === seatId);
             const privateCount = seatId ? privateAfter(table, seatId, round.number).length : 0;
             const canReply = latest && round.status !== "running" && atTable && seatId !== activeSeat;
+            // The agent as it was in this round, so earlier rounds keep their names and colors.
+            const seat = seatIn(round, table, reply.participantId);
+            const agent = `Agent ${reply.participantId}`;
+            const who = seat && seatName(seat) ? `${agent} · ${seat.modelName}` : agent;
             return (
               <ReplyView
                 key={reply.id}
                 kind="seat"
                 reply={reply}
-                name={seatIn(round, table, reply.participantId)?.modelName ?? `Agent ${reply.participantId}`}
-                meta={`Agent ${reply.participantId}${atTable ? "" : " · Removed"}`}
-                avatar={<SeatAvatar id={reply.participantId} />}
+                name={seat ? seatDisplayName(seat) : agent}
+                meta={atTable ? who : `${who} · Removed`}
+                avatar={<SeatAvatar id={reply.participantId} color={seatColor(seat ?? { id: seatId ?? "A" })} />}
                 highlighted={reply.id === highlightReplyId}
                 expanded={expanded[reply.id]}
                 onToggleExpanded={onToggleExpanded}

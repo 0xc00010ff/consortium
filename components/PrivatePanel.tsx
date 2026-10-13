@@ -5,7 +5,7 @@ import type { PrivateMessage, Reply, Seat, Table } from "@/lib/types";
 import { excerpt, formatDuration } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
 import { useStickToBottom } from "@/lib/ui/useStickToBottom";
-import { latestReply } from "@/lib/ui/view";
+import { latestReply, seatColor, seatDisplayName, seatName } from "@/lib/ui/view";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { ReplyError } from "./Thread";
@@ -33,6 +33,7 @@ export function PrivatePanel({
   const messages = table.privateThreads[seat.id] ?? [];
   const latest = latestReply(table, seat.id);
   const canSend = !busy && text.trim() !== "";
+  const name = seatName(seat);
 
   function send() {
     if (!canSend) return;
@@ -42,16 +43,18 @@ export function PrivatePanel({
   return (
     <aside className="panel private" aria-label={`Private conversation with Agent ${seat.id}`}>
       <div className="panel-head tall">
-        <SeatAvatar id={seat.id} />
+        <SeatAvatar id={seat.id} color={seatColor(seat)} />
         <div className="panel-who">
-          <div className="panel-name">{seat.modelName}</div>
-          <div className="panel-sub">Agent {seat.id} · Private conversation</div>
+          <div className="panel-name">{seatDisplayName(seat)}</div>
+          <div className="panel-sub">
+            {name ? `Agent ${seat.id} · ${seat.modelName} · Private conversation` : `Agent ${seat.id} · Private conversation`}
+          </div>
         </div>
         <IconButton icon="x" label="Close the private conversation" onClick={onClose} />
       </div>
       <p className="panel-status private-status">
         <Icon name="lock" size={12} />
-        Only Agent {seat.id} sees this conversation.
+        {name ? `Only Agent ${seat.id} (${name}) sees this conversation.` : `Only Agent ${seat.id} sees this conversation.`}
       </p>
 
       <div className="private-scroll" ref={scrollRef}>
@@ -131,10 +134,10 @@ function PrivateMessageView({ message, seat }: { message: PrivateMessage; seat: 
   const duration = message.status === "done" ? formatDuration(message.durationMs) : "";
   return (
     <div className={cx("pm")} aria-busy={message.status === "streaming" || undefined}>
-      <SeatAvatar id={seat.id} small />
+      <SeatAvatar id={seat.id} color={seatColor(seat)} small />
       <div className="pm-main">
         <div className="pm-n">
-          {seat.modelName}
+          {seatDisplayName(seat)}
           {duration ? (
             <>
               {" · "}

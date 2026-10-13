@@ -1,6 +1,7 @@
 // Values the interface derives from a Table. Pure functions, no React.
 
 import {
+  SEAT_COLORS,
   SEAT_LETTERS,
   type Arbiter,
   type ModelInfo,
@@ -9,6 +10,7 @@ import {
   type Reply,
   type Round,
   type Seat,
+  type SeatColor,
   type SeatId,
   type Table,
 } from "@/lib/types";
@@ -51,6 +53,32 @@ export function seatIn(round: Round | undefined, table: Table, id: string): Seat
 
 export function arbiterIn(round: Round | undefined, table: Table, id: string): Arbiter | undefined {
   return round?.arbiters?.find((a) => a.id === id) ?? table.arbiters.find((a) => a.id === id);
+}
+
+// The agent's color: the host's choice, or the letter's own color.
+export function seatColor(seat: Pick<Seat, "id" | "color">): SeatColor {
+  return seat.color ?? SEAT_COLORS[SEAT_LETTERS.indexOf(seat.id)] ?? SEAT_COLORS[0];
+}
+
+export const COLOR_LABELS: Record<SeatColor, string> = {
+  blue: "Blue",
+  green: "Green",
+  purple: "Purple",
+  orange: "Orange",
+  teal: "Teal",
+  pink: "Pink",
+  olive: "Olive",
+  brown: "Brown",
+};
+
+// The host's name for the agent, or the model name when it has none.
+export function seatDisplayName(seat: Pick<Seat, "name" | "modelName">): string {
+  return seat.name?.trim() || seat.modelName;
+}
+
+// The host's name for the agent, trimmed, or undefined when it has none.
+export function seatName(seat: Pick<Seat, "name">): string | undefined {
+  return seat.name?.trim() || undefined;
 }
 
 export function isSeatId(id: string): id is SeatId {

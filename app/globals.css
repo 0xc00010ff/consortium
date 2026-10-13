@@ -486,14 +486,42 @@ textarea::placeholder {
   background: var(--bg);
 }
 
-.seat-a { --c: var(--seat-a); }
-.seat-b { --c: var(--seat-b); }
-.seat-c { --c: var(--seat-c); }
-.seat-d { --c: var(--seat-d); }
-.seat-e { --c: var(--seat-e); }
-.seat-f { --c: var(--seat-f); }
-.seat-g { --c: var(--seat-g); }
-.seat-h { --c: var(--seat-h); }
+/* An agent's color, on its avatar and on the swatches of the color menu.
+   The colors keep the letter tokens, since A to H use them in this order by default. */
+.color-blue { --c: var(--seat-a); }
+.color-green { --c: var(--seat-b); }
+.color-purple { --c: var(--seat-c); }
+.color-orange { --c: var(--seat-d); }
+.color-teal { --c: var(--seat-e); }
+.color-pink { --c: var(--seat-f); }
+.color-olive { --c: var(--seat-g); }
+.color-brown { --c: var(--seat-h); }
+
+/* An agent's avatar as the button that opens its color menu. */
+.av-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.av-btn:hover:not(:disabled) .av,
+.av-btn[aria-expanded="true"] .av {
+  box-shadow: 0 0 0 2px var(--side), 0 0 0 3px var(--border-strong);
+}
+
+.av-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.av-btn:disabled {
+  cursor: default;
+}
 
 /* ---------- sidebar ---------- */
 
@@ -695,7 +723,8 @@ textarea::placeholder {
   visibility: hidden;
 }
 
-.menu [role="menuitem"] {
+.menu [role="menuitem"],
+.menu [role="menuitemradio"] {
   display: block;
   width: 100%;
   height: 28px;
@@ -712,7 +741,9 @@ textarea::placeholder {
 }
 
 .menu > [role="menuitem"]:hover,
-.menu > [role="menuitem"]:focus-visible {
+.menu > [role="menuitem"]:focus-visible,
+.menu > [role="menuitemradio"]:hover,
+.menu > [role="menuitemradio"]:focus-visible {
   background: var(--hover);
   outline: none;
 }
@@ -754,6 +785,33 @@ textarea::placeholder {
 .menu .menu-x:focus-visible {
   background: var(--border);
   color: var(--text);
+}
+
+/* A choice with a swatch before its name and a check after it, such as an agent's color. */
+.menu [role="menuitemradio"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu .menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu [role="menuitemradio"] .ic {
+  flex: none;
+  color: var(--text-2);
+}
+
+.swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--c);
 }
 
 .menu-sep {
@@ -1628,6 +1686,9 @@ button.round-btn:focus-visible {
 .panel-sub {
   font-size: 12px;
   color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panel-body {
@@ -1781,13 +1842,15 @@ button.round-btn:focus-visible {
   gap: 10px;
 }
 
-/* An agent: drag handle, avatar, model, Web, the on/off switch and remove,
-   with a tool's own model select and the agent's prompt under the model. */
+/* An agent block has the arbiter block's shape. Line 1: drag handle, color,
+   name, Web, the on/off switch and remove. Line 2: the model, with a tool's
+   own model select beside it. Line 3: the prompt. Lines 2 and 3 start at the
+   avatar, so the handle keeps a column of its own. */
 .agent {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 0;
+  gap: 6px;
+  padding: 8px 0 10px;
 }
 
 .agent > .prow {
@@ -1795,18 +1858,23 @@ button.round-btn:focus-visible {
   gap: 4px 6px;
 }
 
-/* A tool's model select takes a second grid row, from the main select's
-   column to the end of the row, so "Default (gpt-6-astra)" fits. */
-.agent > .prow > .tool-model {
-  grid-column: 3 / -1;
+.agent > .agent-model {
+  grid-template-columns: minmax(0, 1fr);
+  margin-left: 22px;
+}
+
+/* A tool's name is short, so its own model select takes the wider column. */
+.agent > .agent-model.two {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
 }
 
 .agent .web {
   padding: 0 6px;
 }
 
-.agent > .seat-prompt {
-  margin-left: 52px;
+.agent > .seat-prompt,
+.agent > .seat-prompt.open {
+  margin: 0 0 0 22px;
 }
 
 /* The drag handle that reorders agents. The arrow keys also move it. */
@@ -1854,8 +1922,9 @@ button.round-btn:focus-visible {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-.agent.off > .prow > .av,
-.agent.off > .prow > .select {
+.agent.off > .prow > .av-btn,
+.agent.off > .prow > .input,
+.agent.off > .agent-model {
   opacity: 0.45;
 }
 
