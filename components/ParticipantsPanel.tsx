@@ -23,8 +23,9 @@ import {
   newSeat,
   withModel,
 } from "@/lib/ui/view";
+import { applyPreset, deletePreset, savePreset, usePresets } from "@/lib/ui/presets";
 import { Icon } from "./Icon";
-import { ArbiterAvatar, cx, IconButton, SeatAvatar, Switch, Toggle } from "./ui";
+import { ArbiterAvatar, cx, IconButton, Menu, SeatAvatar, Switch, Toggle } from "./ui";
 
 // Command line tools on the host's own subscriptions have ids like "cli/codex".
 const isTool = (m: ModelInfo) => m.id.startsWith("cli/");
@@ -122,7 +123,10 @@ export function ParticipantsPanel({
         </section>
 
         <section className="psec">
-          <h3 className="lbl">Agents</h3>
+          <div className="lbl-row">
+            <h3 className="lbl">Agents</h3>
+            <Presets table={table} disabled={disabled} onEdit={onEdit} />
+          </div>
           <ul className={cx("prows", sorting && "sorting")} ref={listRef}>
             {table.seats.map((seat) => {
               const on = seat.active !== false;
@@ -289,6 +293,91 @@ export function ParticipantsPanel({
 // Reorders the agents. Dragging a row's handle draws a line where the row will
 // land and reorders the list once, on drop. Escape cancels a drag. With focus
 // on the handle, the up and down arrow keys move the row one step each.
+// Saved setups for this panel. Choosing one replaces the whole setup.
+function Presets({ table, disabled, onEdit }: { table: Table; disabled: boolean; onEdit: (edit: TableEdit) => void }) {
+  const presets = usePresets();
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const open = anchor !== null && !disabled;
+
+  function close(refocus: boolean) {
+    if (refocus) anchor?.focus();
+    setAnchor(null);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="lbl-btn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={(e) => setAnchor(open ? null : e.currentTarget)}
+      >
+        Presets
+        <Icon name="chevronDown" size={12} />
+      </button>
+      {open ? (
+        <Menu anchor={anchor} label="Presets" onClose={close}>
+          {presets.map((preset) => (
+            <div className="menu-line" key={preset.id}>
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                onClick={() => {
+                  close(true);
+                  onEdit(applyPreset(preset));
+                }}
+              >
+                {preset.name}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                data-side=""
+                className="menu-x"
+                aria-label={`Delete preset ${preset.name}`}
+                title="Delete preset"
+                onClick={(e) => {
+                  // Keep focus in the menu: on the next preset, the one before, or Save new.
+                  const line = e.currentTarget.closest(".menu-line");
+                  const near = line?.nextElementSibling?.matches(".menu-line")
+                    ? line.nextElementSibling
+                    : line?.previousElementSibling?.matches(".menu-line")
+                      ? line.previousElementSibling
+                      : null;
+                  const target =
+                    near?.querySelector<HTMLElement>('[role="menuitem"]') ??
+                    line?.parentElement?.querySelector<HTMLElement>(':scope > [role="menuitem"]:last-child');
+                  deletePreset(preset.id);
+                  target?.focus();
+                }}
+              >
+                <Icon name="x" size={12} />
+              </button>
+            </div>
+          ))}
+          {presets.length ? <div role="separator" className="menu-sep" /> : null}
+          <button
+            type="button"
+            role="menuitem"
+            tabIndex={-1}
+            onClick={() => {
+              close(true);
+              const name = window.prompt("Name this preset")?.trim();
+              if (name) savePreset(name, table);
+            }}
+          >
+            Save new…
+          </button>
+        </Menu>
+      ) : null}
+    </>
+  );
+}
+
 function useAgentOrder(seats: Seat[], disabled: boolean, onReorder: (seats: Seat[]) => void) {
   const listRef = useRef<HTMLUListElement>(null);
   // The row being dragged and the index it would take in the list without it.

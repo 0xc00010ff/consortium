@@ -8,7 +8,7 @@
 
 import type { Table } from "@/lib/types";
 
-const PREFIX = "consortium.v2.";
+export const PREFIX = "consortium.v2.";
 export const INDEX_KEY = `${PREFIX}index`;
 const TABLE_PREFIX = `${PREFIX}table.`;
 const OLD_PREFIX = "consortium.v1.";
@@ -33,7 +33,7 @@ interface SavedTable {
 
 type Listener = () => void;
 
-function createStore<T>(initial: () => T, server: T) {
+export function createStore<T>(initial: () => T, server: T) {
   let value: T | undefined;
   const listeners = new Set<Listener>();
   return {
@@ -148,7 +148,7 @@ function dropAttachments(table: Table): Table {
   };
 }
 
-function isQuotaError(err: unknown): boolean {
+export function isQuotaError(err: unknown): boolean {
   return (
     err instanceof DOMException &&
     (err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED" || err.code === 22)

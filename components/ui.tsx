@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { Attachment, ToolActivity } from "@/lib/types";
 import { displayUrl } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
@@ -126,6 +126,108 @@ export function Toggle<T extends string>({
       ))}
     </div>
   );
+}
+
+// ---------- menus ----------
+
+// A small popover menu under its button, aligned to the button's right edge.
+// It flips above the button when there is no room below. Arrow keys move
+// between items, and ArrowRight reaches an item's side button (marked
+// data-side, inside a .menu-line). Escape or Tab closes it and returns focus
+// to the button; so does onClose(true) from the caller. A press outside, a
+// scroll that moves the button, or a resize closes it without moving focus.
+export function Menu({
+  anchor,
+  label,
+  onClose,
+  children,
+}: {
+  anchor: HTMLElement;
+  label: string;
+  onClose: (refocus: boolean) => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+
+  useLayoutEffect(() => {
+    closeRef.current = onClose;
+  });
+
+  // Placed on every render, since the items can change while it is open.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const a = anchor.getBoundingClientRect();
+    const height = el.offsetHeight;
+    const below = a.bottom + 4;
+    el.style.top = `${below + height > window.innerHeight - 8 ? Math.max(8, a.top - 4 - height) : below}px`;
+    el.style.right = `${Math.max(8, window.innerWidth - a.right)}px`;
+    el.style.visibility = "visible";
+  });
+
+  useLayoutEffect(() => {
+    primaryItems(ref.current)[0]?.focus();
+  }, []);
+
+  useEffect(() => {
+    const close = () => closeRef.current(false);
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as Node;
+      if (ref.current?.contains(target) || anchor.contains(target)) return;
+      close();
+    }
+    function onScroll(e: Event) {
+      if (e.target instanceof Node && e.target.contains(anchor)) close();
+    }
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [anchor]);
+
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Escape" || e.key === "Tab") {
+      e.preventDefault();
+      onClose(true);
+      return;
+    }
+    const active = document.activeElement as HTMLElement | null;
+    const line = active?.closest(".menu-line");
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      const target = line?.querySelector<HTMLElement>(e.key === "ArrowRight" ? "[data-side]" : '[role="menuitem"]:not([data-side])');
+      if (target) {
+        e.preventDefault();
+        target.focus();
+      }
+      return;
+    }
+    const items = primaryItems(ref.current);
+    const current = active?.hasAttribute("data-side") ? line?.querySelector<HTMLElement>('[role="menuitem"]:not([data-side])') : active;
+    const at = items.indexOf(current as HTMLElement);
+    let next: number | null = null;
+    if (e.key === "ArrowDown") next = (at + 1) % items.length;
+    else if (e.key === "ArrowUp") next = (at - 1 + items.length) % items.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = items.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    items[next]?.focus();
+  }
+
+  return (
+    <div ref={ref} className="menu" role="menu" aria-label={label} onKeyDown={onKeyDown}>
+      {children}
+    </div>
+  );
+}
+
+function primaryItems(menu: HTMLElement | null): HTMLElement[] {
+  return [...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([data-side])') ?? [])];
 }
 
 // ---------- attachments ----------

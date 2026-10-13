@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import type { ModelsResponse, TableStore } from "@/lib/types";
 import { FIXTURE_MODELS, isFixtureName, previewTable } from "@/lib/ui/fixtures";
 import { indexStore, storageWarningStore } from "@/lib/ui/storage";
-import { deleteTable, getDraft, isDraft, openTable, releaseDraft, storesVersion, subscribeStores } from "@/lib/ui/tables";
+import { deleteTable, getDraft, isDraft, openTable, releaseDraft, renameTable, storesVersion, subscribeStores } from "@/lib/ui/tables";
 import { useTable } from "@/lib/ui/useStore";
 import { Sidebar } from "./Sidebar";
 import { TableScreen } from "./TableScreen";
@@ -214,6 +214,7 @@ export default function App() {
           recent={recent}
           mock={Boolean(data?.mock)}
           onNew={newTable}
+          onRename={renameTable}
           onDelete={onDelete}
           onHide={() => setSidebarHidden(true)}
         />
@@ -234,6 +235,7 @@ function SidebarFor({
   recent: React.ComponentProps<typeof Sidebar>["recent"];
   mock: boolean;
   onNew: () => void;
+  onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onHide: () => void;
 }) {
@@ -252,6 +254,7 @@ function SidebarWithTable({
   recent: React.ComponentProps<typeof Sidebar>["recent"];
   mock: boolean;
   onNew: () => void;
+  onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onHide: () => void;
 }) {

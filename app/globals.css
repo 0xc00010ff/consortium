@@ -593,7 +593,8 @@ textarea::placeholder {
   text-decoration: none;
 }
 
-.row:hover .row-link {
+.row:hover .row-link,
+.row.menu-open .row-link {
   background: var(--hover);
 }
 
@@ -620,7 +621,7 @@ textarea::placeholder {
   color: var(--text-2);
 }
 
-.row-del {
+.row-more {
   position: absolute;
   top: 4px;
   right: 4px;
@@ -635,23 +636,130 @@ textarea::placeholder {
   color: var(--text-2);
 }
 
-.row-del:hover {
+.row-more:hover,
+.row-more[aria-expanded="true"] {
   background: var(--border);
   color: var(--text);
 }
 
-.row:hover .row-del,
-.row:focus-within .row-del {
+.row:hover .row-more,
+.row:focus-within .row-more,
+.row.menu-open .row-more {
   display: grid;
 }
 
 .row:hover .row-time,
-.row:focus-within .row-time {
+.row:focus-within .row-time,
+.row.menu-open .row-time {
   visibility: hidden;
 }
 
 .row.on .row-link {
   padding-right: 32px;
+}
+
+.row.renaming .row-link {
+  padding-right: 8px;
+}
+
+/* The title field while a row is renamed. Its text lines up with the title. */
+.row-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  margin: 0 -6px;
+  padding: 0 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  font-weight: inherit;
+  outline: none;
+}
+
+/* A small popover menu, placed by the Menu component in ui.tsx. */
+.menu {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  max-width: 260px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
+  font-size: 13px;
+  visibility: hidden;
+}
+
+.menu [role="menuitem"] {
+  display: block;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  line-height: 28px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu > [role="menuitem"]:hover,
+.menu > [role="menuitem"]:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+
+/* An item with a small button at its right, such as a preset and its delete button. */
+.menu-line {
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.menu-line:hover,
+.menu-line:focus-within {
+  background: var(--hover);
+}
+
+.menu-line [role="menuitem"]:focus-visible {
+  outline: none;
+}
+
+.menu .menu-x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 3px;
+  padding: 0;
+  color: var(--text-2);
+  visibility: hidden;
+}
+
+.menu-line:hover .menu-x,
+.menu-line:focus-within .menu-x {
+  visibility: visible;
+}
+
+.menu .menu-x:hover,
+.menu .menu-x:focus-visible {
+  background: var(--border);
+  color: var(--text);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
 }
 
 .side-foot {
@@ -1623,6 +1731,35 @@ button.round-btn:focus-visible {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-2);
+}
+
+.lbl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* A plain text button on a heading row, such as Presets. */
+.lbl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.lbl-btn:hover:not(:disabled),
+.lbl-btn[aria-expanded="true"] {
+  color: var(--text);
+}
+
+.lbl-btn:disabled {
+  opacity: 0.45;
 }
 
 .prows {

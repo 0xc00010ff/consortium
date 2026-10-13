@@ -12,7 +12,7 @@
 import type { ModelsResponse, PrivateMessage, SeatId, Table, TableStore } from "@/lib/types";
 import { createTableStore, newTable, speak } from "./engine";
 import { createSaver, INDEX_KEY, readTable, reloadIndex, removeTable, tableIdFromKey, writeTable, type Saver } from "./storage";
-import { isBusy } from "./view";
+import { isBusy, UNTITLED } from "./view";
 
 interface Entry {
   store: TableStore;
@@ -212,4 +212,22 @@ export function deleteTable(id: string) {
   if (entry && isBusy(entry.store.getTable())) entry.store.stop();
   drop(id);
   removeTable(id);
+}
+
+// Renames a saved table. A table that is live on this page is renamed through
+// its store, which refuses while it is replying, so the row keeps its old
+// title. Any other table is renamed in storage, which updates the recent list.
+export function renameTable(id: string, title: string) {
+  if (deleted.has(id)) return;
+  const name = title.trim() || UNTITLED;
+  const entry = entries.get(id);
+  if (entry) {
+    const before = entry.store.getTable();
+    entry.store.edit({ title: name });
+    if (entry.store.getTable() !== before) entry.saver.flush();
+    return;
+  }
+  const stored = readTable(id);
+  if (!stored || stored.table.title === name) return;
+  writeTable({ ...stored.table, title: name, updatedAt: Date.now() });
 }

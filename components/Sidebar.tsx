@@ -1,11 +1,12 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { shortTime } from "@/lib/ui/format";
 import type { TableSummary } from "@/lib/ui/storage";
 import { useNow } from "@/lib/ui/useNow";
 import { UNTITLED } from "@/lib/ui/view";
 import { Icon, Mark } from "./Icon";
-import { cx, IconButton } from "./ui";
+import { cx, IconButton, Menu } from "./ui";
 
 export function Sidebar({
   recent,
@@ -14,6 +15,7 @@ export function Sidebar({
   showCurrent,
   mock,
   onNew,
+  onRename,
   onDelete,
   onHide,
 }: {
@@ -23,10 +25,38 @@ export function Sidebar({
   showCurrent: boolean; // the open table is a draft or preview that is not in the saved list
   mock: boolean;
   onNew: () => void;
+  onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onHide: () => void;
 }) {
   const now = useNow();
+  const navRef = useRef<HTMLElement>(null);
+  // Only one row has its menu open at a time.
+  const [menu, setMenu] = useState<{ id: string; anchor: HTMLButtonElement } | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  // After a rename ends from the keyboard, focus goes back to that row's link.
+  const focusLink = useRef<string | null>(null);
+
+  useEffect(() => {
+    const id = focusLink.current;
+    if (!id || renaming) return;
+    focusLink.current = null;
+    navRef.current?.querySelector<HTMLElement>(`[data-row="${CSS.escape(id)}"] .row-link`)?.focus();
+  });
+
+  function closeMenu(refocus: boolean) {
+    if (refocus) menu?.anchor.focus();
+    setMenu(null);
+  }
+
+  function finishRename(id: string, title: string, next: string | null, fromKeyboard: boolean) {
+    if (next !== null) {
+      const name = next.trim() || UNTITLED;
+      if (name !== title) onRename(id, name);
+    }
+    if (fromKeyboard) focusLink.current = id;
+    setRenaming(null);
+  }
 
   return (
     <aside className="sidebar">
@@ -43,7 +73,7 @@ export function Sidebar({
         New table
       </button>
 
-      <nav className="recent" aria-label="Recent tables">
+      <nav className="recent" aria-label="Recent tables" ref={navRef}>
         <h2 className="side-h">Recent</h2>
         <ul>
           {showCurrent ? (
@@ -56,23 +86,57 @@ export function Sidebar({
           {recent.map((t) => {
             const on = t.id === currentId;
             const title = (on ? currentTitle : t.title) || UNTITLED;
+            const menuOpen = menu?.id === t.id;
+            if (renaming === t.id) {
+              return (
+                <li key={t.id} className={cx("row renaming", on && "on")} data-row={t.id}>
+                  <div className="row-link">
+                    <RowRename
+                      title={title}
+                      onDone={(next, fromKeyboard) => finishRename(t.id, title, next, fromKeyboard)}
+                    />
+                  </div>
+                </li>
+              );
+            }
             return (
-              <li key={t.id} className={cx("row", on && "on")}>
+              <li key={t.id} className={cx("row", on && "on", menuOpen && "menu-open")} data-row={t.id}>
                 <a className="row-link" href={`#/table/${t.id}`} aria-current={on ? "page" : undefined}>
                   <span className="row-title">{title}</span>
                   {on ? null : <span className="row-time">{shortTime(t.updatedAt, now)}</span>}
                 </a>
-                <button
-                  type="button"
-                  className="row-del"
-                  aria-label={`Delete ${title}`}
-                  title="Delete this table"
-                  onClick={() => {
-                    if (window.confirm(`Delete “${title}”? This removes it from this browser.`)) onDelete(t.id);
-                  }}
-                >
-                  <Icon name="trash" size={14} />
-                </button>
+                <MoreButton
+                  title={title}
+                  open={menuOpen}
+                  onOpen={(anchor) => setMenu({ id: t.id, anchor })}
+                  onClose={() => closeMenu(false)}
+                />
+                {menuOpen ? (
+                  <Menu anchor={menu.anchor} label={`More for ${title}`} onClose={closeMenu}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      tabIndex={-1}
+                      onClick={() => {
+                        setMenu(null);
+                        setRenaming(t.id);
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      tabIndex={-1}
+                      onClick={() => {
+                        closeMenu(true);
+                        if (window.confirm(`Delete “${title}”? This removes it from this browser.`)) onDelete(t.id);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </Menu>
+                ) : null}
               </li>
             );
           })}
@@ -87,5 +151,71 @@ export function Sidebar({
         </p>
       ) : null}
     </aside>
+  );
+}
+
+function MoreButton({
+  title,
+  open,
+  onOpen,
+  onClose,
+}: {
+  title: string;
+  open: boolean;
+  onOpen: (anchor: HTMLButtonElement) => void;
+  onClose: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="row-more"
+      aria-label={`More for ${title}`}
+      title="More"
+      aria-haspopup="menu"
+      aria-expanded={open}
+      onClick={(e) => (open ? onClose() : onOpen(e.currentTarget))}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowDown" && !open) {
+          e.preventDefault();
+          onOpen(e.currentTarget);
+        }
+      }}
+    >
+      <Icon name="more" size={14} />
+    </button>
+  );
+}
+
+// The row's title as a text field. Enter or leaving the field saves, Escape cancels.
+function RowRename({ title, onDone }: { title: string; onDone: (next: string | null, fromKeyboard: boolean) => void }) {
+  const [value, setValue] = useState(title);
+  const done = useRef(false);
+
+  function finish(next: string | null, fromKeyboard: boolean) {
+    if (done.current) return;
+    done.current = true;
+    onDone(next, fromKeyboard);
+  }
+
+  return (
+    <input
+      className="row-input"
+      value={value}
+      aria-label="Table title"
+      maxLength={120}
+      autoFocus
+      onFocus={(e) => e.target.select()}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => finish(value, false)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          finish(value, true);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          finish(null, true);
+        }
+      }}
+    />
   );
 }

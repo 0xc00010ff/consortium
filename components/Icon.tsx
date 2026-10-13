@@ -40,6 +40,14 @@ const PATHS = {
       <circle cx="15" cy="18" r="1" />
     </>
   ),
+  // Three dots in a row, for a menu of more actions.
+  more: (
+    <>
+      <circle cx="6" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="18" cy="12" r="1" />
+    </>
+  ),
   paperclip: (
     <path d="m20.5 11.5-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />
   ),
