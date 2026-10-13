@@ -525,9 +525,27 @@ textarea::placeholder {
   font-weight: 600;
 }
 
+/* The mark has a faint warm halo that breathes very slowly. */
 .mark {
   display: block;
   flex: none;
+  filter: drop-shadow(0 0 3px rgba(225, 160, 70, 0.28));
+  animation: mark-glow 6s ease-in-out infinite alternate;
+}
+
+@keyframes mark-glow {
+  from {
+    filter: drop-shadow(0 0 3px rgba(225, 160, 70, 0.18));
+  }
+  to {
+    filter: drop-shadow(0 0 4px rgba(225, 160, 70, 0.34));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark {
+    animation: none;
+  }
 }
 
 .new-btn {

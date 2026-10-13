@@ -139,15 +139,17 @@ export function Icon({ name, size = 16, className }: { name: IconName; size?: nu
   );
 }
 
-// The Consortium mark: a ring of four arcs in the first four seat colors.
+// The Consortium mark: a ring of four arcs in golden bronze, from a light
+// gold highlight round to a dark bronze shadow. The glow is in the CSS.
+export const MARK_COLORS = ["#f4d78c", "#dfae4f", "#c27d3a", "#9a5f2c"];
+
 export function Mark({ size = 18 }: { size?: number }) {
   const r = 7;
   const c = 2 * Math.PI * r;
   const arc = c / 4 - 2.4;
-  const colors = ["var(--seat-a)", "var(--seat-b)", "var(--seat-c)", "var(--seat-d)"];
   return (
     <svg className="mark" width={size} height={size} viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-      {colors.map((color, i) => (
+      {MARK_COLORS.map((color, i) => (
         <circle
           key={color}
           cx="10"
