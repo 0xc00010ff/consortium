@@ -865,6 +865,11 @@ textarea::placeholder {
   outline-offset: -2px;
 }
 
+/* The README screenshot hides the sample-mode note. */
+:root[data-screenshot] .side-foot {
+  display: none;
+}
+
 .side-foot {
   flex: none;
   margin: 8px 0 0;

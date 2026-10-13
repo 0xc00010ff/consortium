@@ -204,7 +204,7 @@ export default function App() {
       }
     } else if (route.view === "preview") {
       title = "No preview with that name";
-      body = <p>Try /#/preview/new, group, independent or running.</p>;
+      body = <p>Try /#/preview/new, group, independent, running or demo.</p>;
     } else if (models.error) {
       title = "The conversation could not be set up";
       body = <p>A new conversation needs the model list to choose its agents.</p>;

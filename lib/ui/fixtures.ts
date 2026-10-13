@@ -1,5 +1,5 @@
 // Realistic tables for building and reviewing the interface without the engine.
-// Open them in development at /#/preview/new, group, independent or running.
+// Open them in development at /#/preview/new, group, independent, running or demo.
 
 import type {
   Arbiter,
@@ -16,6 +16,7 @@ import type {
   TableStore,
   ToolActivity,
 } from "@/lib/types";
+import { SUMMARIZER_INSTRUCTIONS, SUMMARIZER_NAME } from "@/lib/engine/table";
 import { isBusy } from "./view";
 
 export const FIXTURE_MODELS: ModelsResponse = {
@@ -62,7 +63,7 @@ export const FIXTURE_MODELS: ModelsResponse = {
   },
 };
 
-export const FIXTURE_NAMES = ["new", "group", "independent", "running"] as const;
+export const FIXTURE_NAMES = ["new", "group", "independent", "running", "demo"] as const;
 export type FixtureName = (typeof FIXTURE_NAMES)[number];
 
 const T0 = Date.UTC(2026, 9, 12, 14, 0, 0);
@@ -424,11 +425,231 @@ function runningFixture(): Table {
   };
 }
 
+// ---------- a demo conversation, for the README screenshot ----------
+
+// Two people are naming a small Mac app. Round 1 ran in parallel; round 2 ran
+// in round robin, so each agent answers the ones before it. The host talked
+// privately with Builder between the rounds.
+const DEMO_SUMMARIZER: Arbiter = {
+  id: "arbiter-1",
+  name: SUMMARIZER_NAME,
+  modelId: "cli/claude-code",
+  modelName: "Claude Code",
+  maker: "anthropic",
+  browsing: false,
+  toolModel: "haiku",
+  instructions: SUMMARIZER_INSTRUCTIONS,
+};
+
+function demoFixture(): Table {
+  const D0 = T0 + 86_400_000;
+  const min = 60_000;
+  const seats: Seat[] = [
+    {
+      id: "A",
+      name: "Skeptic",
+      color: "purple",
+      modelId: "cli/claude-code",
+      modelName: "Claude Code",
+      maker: "anthropic",
+      toolModel: "opus",
+      browsing: true,
+      instructions: "Find the weakest assumption in each idea, and say what evidence would settle it.",
+    },
+    {
+      id: "B",
+      name: "Builder",
+      color: "teal",
+      modelId: "cli/codex",
+      modelName: "Codex",
+      maker: "openai",
+      toolModel: "gpt-6-astra",
+      browsing: true,
+    },
+    { id: "C", color: "blue", modelId: "google/gemini-3.1-pro-preview", modelName: "Gemini 3.1 Pro Preview", maker: "google", browsing: true },
+    { id: "D", color: "orange", modelId: "spacexai/grok-4.7", modelName: "Grok 4.7", maker: "xai", browsing: false },
+  ];
+  // A finished reply with its own timing and token counts.
+  const said = (
+    participantId: string,
+    text: string,
+    at: number,
+    durationMs: number,
+    inputTokens: number,
+    outputTokens: number,
+    extra: Partial<Reply> = {},
+  ) => reply(participantId, text, { startedAt: at, durationMs, usage: { inputTokens, outputTokens }, ...extra });
+
+  const r1At = D0;
+  const r1 = round(1, {
+    turns: "parallel",
+    seats,
+    arbiters: [DEMO_SUMMARIZER],
+    host: host(
+      "Which name says what the app does best: Margin, Shelf or Recall? We are two people building a Mac app that saves every article you read, with your highlights, into a private library you can search later. Launch is in six weeks. Pick a name, say who it is for in one line, and tell us what to leave out of the first version.",
+      [],
+      r1At,
+    ),
+    replies: [
+      said(
+        "A",
+        "**Recall overpromises.** It tells people the app will remember things for them, and the first time a search misses, the name becomes the complaint. I would drop it.\n\nBetween the other two, Margin is the stronger name, as long as highlights are the heart of the product. It points at the habit of writing in the margins of a book, which describes the person most likely to pay. Shelf sounds calm, but it describes storage, and Safari's Reading List and a dozen free apps already give storage away.\n\nThe line I would test: *Everything you have read, with your notes, searchable on your Mac.*\n\nLeave sync out of the first version. It is the hardest feature to get right, and a local-only app is easier to trust.",
+        r1At + 2_000,
+        14_600,
+        2_310,
+        204,
+      ),
+      said(
+        "B",
+        "Shelf. It is short, easy to say, and it tells a new user what to do with the app: put things on it. Margin is clever, but people need the book reference before it makes sense, and most will first see the name in a list of search results with no context.\n\nFor the first version, I would ship three things and nothing else:\n\n1. A browser extension that saves the page and your highlights in one click.\n2. A library window with full-text search.\n3. Export to Markdown, so nobody feels locked in.\n\nLeave out tags, sharing and the iPhone app. Each is a reasonable request, and each would push the launch past six weeks.",
+        r1At + 2_000,
+        11_200,
+        2_280,
+        168,
+      ),
+      said(
+        "C",
+        "Recall describes the benefit most directly, so I would not dismiss it quickly. People rarely buy a place to put articles. They buy the moment, months later, when they find the quote they half remember.\n\nThe name has a cost, though. Recall is also the word for a product safety notice, and a Windows feature with the same name drew sharp criticism over privacy. For an app whose promise is a private library, that association is a real risk.\n\nSo my order is Margin, then Shelf, with Recall out. I would position it for researchers, writers and students who already highlight, because they feel this problem every week.",
+        r1At + 2_000,
+        9_800,
+        2_250,
+        151,
+        { votes: 1 },
+      ),
+      said(
+        "D",
+        "I would not pick any of them yet. All three are common words, so the App Store search, the domain and the trademark will be crowded, and a small team cannot outspend that.\n\nTwo quick checks before you choose:\n\n- Search the Mac App Store for each name and count the apps already using it.\n- Ask ten people who would buy this which name they remember an hour later.\n\nIf you have to decide today, choose Margin. It is the only one of the three that hints at reading, and it leaves room for a distinctive icon.",
+        r1At + 2_000,
+        6_900,
+        2_240,
+        126,
+      ),
+    ],
+    arbiterReplies: [
+      said(
+        DEMO_SUMMARIZER.id,
+        "**The chat so far.** The host asked the agents to choose between Margin, Shelf and Recall for a Mac reading library, and to say what the first version should leave out.\n\n- **Skeptic** prefers Margin, rules out Recall as an overpromise, and would leave sync out of the first version.\n- **Builder** prefers Shelf as the plainest name and would ship only the extension, search and Markdown export.\n- **Gemini 3.1 Pro Preview** ranks Margin first and drops Recall because of its privacy associations.\n- **Grok 4.7** wants a quick App Store and memory test first, and would choose Margin if it had to decide today.",
+        r1At + 17_000,
+        4_300,
+        3_420,
+        132,
+      ),
+    ],
+  });
+
+  const r2At = D0 + 40 * min;
+  const r2 = round(2, {
+    turns: "roundRobin",
+    seats,
+    arbiters: [DEMO_SUMMARIZER],
+    host: host(
+      "We ran Grok's test: 7 of 10 people remembered Margin, 2 remembered Shelf and 1 remembered Recall. Agree on a name and a one-line pitch, and flag anything that should still stop us.",
+      [],
+      r2At,
+    ),
+    replies: [
+      said(
+        "A",
+        "The test settles the name for me: Margin. Before you commit, there is one conflict worth checking.\n\nI searched the Mac App Store and found two apps with Margin in the name, a notes app and a PDF annotator. Both are small and neither has been updated this year, so they do not block you, but the plain word will be hard to rank for. Listing it as **Margin Reader** keeps the short brand and avoids the clash.\n\nFor the pitch, I would keep it concrete: *Save what you read, keep what you highlight, and find it again in seconds.*\n\nWhat would still stop me is a registered trademark for Margin in software. I did not find one, but a lawyer should spend an hour on it before you buy the domain.",
+        r2At + 2_000,
+        21_400,
+        4_960,
+        186,
+        {
+          votes: 1,
+          tools: [
+            tool("web_search", "Margin app Mac App Store", "done", "8 results"),
+            tool("web_search", "Margin trademark software USPTO", "done", "6 results"),
+            tool("read_page", "https://apps.apple.com/us/search?term=margin", "done", "Read 1,100 words"),
+          ],
+        },
+      ),
+      said(
+        "B",
+        "I am switching to Margin. I asked for evidence that people remember it, and seven out of ten is a clear answer.\n\nI agree with Skeptic on **Margin Reader** for the store listing. It reads well in a search result and tells people what kind of app it is before they tap.\n\nSkeptic's pitch is good, but it is too long for the App Store subtitle, which allows 30 characters. I would use *Your reading, searchable.* there and keep the longer line for the website.\n\nThe scope stays the same: the extension, the library with search, and Markdown export, in six weeks.",
+        r2At + 24_000,
+        12_300,
+        5_380,
+        142,
+        { votes: 2 },
+      ),
+      said(
+        "C",
+        "Margin Reader works, and I agree with both earlier replies on the store name.\n\nI would push back a little on Builder's subtitle. Search is a feature every competitor claims, and the test suggests people remember Margin because it brings notes to mind. I would keep *Your reading, searchable.* for the App Store, where space is short, and lead the website with this:\n\n*Your highlights and notes, all in one place.*\n\nOn what could still stop you: check that a domain such as **margin.app** is available before you announce. If the only domains left are awkward, that is a better reason to revisit the name than anything raised so far.",
+        r2At + 37_000,
+        10_600,
+        5_720,
+        148,
+      ),
+      said(
+        "D",
+        "Margin Reader it is. The test was small, but a split of seven to two is decisive enough.\n\nMy one disagreement is with leaving sync out entirely. People who read on a phone and a laptop will save something on one and look for it on the other in the first week. I would still keep it out of the launch, but I would say on the website that sync is coming, so people know the gap is planned.\n\nEverything else here has my support: the name, Builder's subtitle, and the narrow scope.",
+        r2At + 48_000,
+        7_400,
+        6_050,
+        112,
+      ),
+    ],
+    arbiterReplies: [
+      said(
+        DEMO_SUMMARIZER.id,
+        "**The chat so far.** After a ten-person test favored Margin, every agent now backs the name, with Margin Reader as the App Store listing.\n\n- **Skeptic** found two small Margin apps in the store and wants an hour of trademark review before you buy the domain.\n- **Builder** switched to Margin and proposed *Your reading, searchable.* to fit the 30 character subtitle.\n- **Gemini 3.1 Pro Preview** keeps that subtitle for the store but would lead the website with highlights and notes, after confirming a domain.\n- **Grok 4.7** agrees on the name and scope, and wants the website to say that sync is coming.",
+        r2At + 56_000,
+        4_900,
+        6_880,
+        138,
+      ),
+    ],
+  });
+
+  const pmAt = D0 + 20 * min;
+  const privately = (role: PrivateMessage["role"], text: string, at: number, durationMs?: number, usage?: PrivateMessage["usage"]) => ({
+    ...pm(role, text, 1, durationMs),
+    createdAt: at,
+    ...(usage ? { usage, startedAt: at } : {}),
+  });
+
+  return {
+    id: "preview-demo",
+    title: "Which name says what the app does…",
+    createdAt: D0,
+    updatedAt: r2At + 61_000,
+    interaction: "group",
+    turns: "roundRobin",
+    instructions:
+      "You are advising a two-person team. Keep each reply under 150 words, and say plainly when you disagree with another agent.",
+    seats,
+    arbiters: [DEMO_SUMMARIZER],
+    rounds: [r1, r2],
+    privateThreads: {
+      B: [
+        privately("host", "You are the only one backing Shelf. What would it take for you to switch to Margin?", pmAt),
+        privately(
+          "seat",
+          "Evidence that people get it without help. If most of the people in Grok's test remember Margin and can say what the app does, I would switch. The name matters less than the first screen, so whichever we pick, the empty library should say in one sentence what to save first.",
+          pmAt + 3_000,
+          6_200,
+          { inputTokens: 3_610, outputTokens: 74 },
+        ),
+        privately("host", "Fair. Suppose the test favors Margin.", pmAt + 90_000),
+        privately(
+          "seat",
+          "Then Margin, and I will say so in the next round. I would still keep the launch to the extension, search and export.",
+          pmAt + 93_000,
+          4_100,
+          { inputTokens: 3_720, outputTokens: 38 },
+        ),
+      ],
+    },
+  };
+}
+
 const builders: Record<FixtureName, () => Table> = {
   new: newFixture,
   group: groupFixture,
   independent: independentFixture,
   running: runningFixture,
+  demo: demoFixture,
 };
 
 // ---------- a store for previews ----------
@@ -497,4 +718,51 @@ export function previewTable(name: FixtureName): TableStore {
 
 export function isFixtureName(name: string | undefined): name is FixtureName {
   return (FIXTURE_NAMES as readonly string[]).includes(name ?? "");
+}
+
+// ---------- screenshot mode ----------
+
+// `npm run screenshot` opens /?screenshot=1#/preview/demo. In that mode the
+// sidebar lists a few made-up conversations in place of the ones saved on
+// this machine, and the thread starts at the top, where the collapsed round 1
+// sits above round 2, in place of the newest reply.
+const SCREENSHOT_RECENT: Array<[title: string, hoursAgo: number]> = [
+  ["How should we price the annual plan…", 3],
+  ["Draft the launch post for the Mac…", 26],
+  ["Review the onboarding copy for the…", 70],
+  ["Is a local-first app easier to…", 150],
+];
+
+function startScreenshotMode() {
+  const now = Date.now();
+  const tables = SCREENSHOT_RECENT.map(([title, hoursAgo], i) => {
+    const at = now - hoursAgo * 3_600_000;
+    return { id: `screenshot-${i + 1}`, title, createdAt: at, updatedAt: at };
+  });
+  const realFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+    if (method === "GET" && new URL(url, window.location.href).pathname === "/api/conversations") {
+      return Promise.resolve(Response.json({ tables }));
+    }
+    return realFetch(input, init);
+  };
+  // The thread keeps itself at the newest reply as it renders, so the scroll
+  // is set again until the page has settled.
+  const toTop = () => {
+    const thread = document.querySelector(".thread-scroll");
+    if (thread) thread.scrollTop = 0;
+  };
+  for (const ms of [600, 1500, 3000]) setTimeout(toTop, ms);
+}
+
+if (
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("screenshot") &&
+  window.location.hash === "#/preview/demo"
+) {
+  // The sample-mode note would be wrong in a picture of the app.
+  document.documentElement.dataset.screenshot = "1";
+  startScreenshotMode();
 }

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "dev:mock": "CONSORTIUM_MOCK=1 next dev"
+    "dev:mock": "CONSORTIUM_MOCK=1 next dev",
+    "screenshot": "node scripts/screenshot.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.79",

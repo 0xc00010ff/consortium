@@ -2,6 +2,8 @@
 
 Consortium is a group chat of AI models. You write a message, every agent at the table answers it, and you decide what happens next.
 
+![Consortium](docs/screenshot.png)
+
 Each exchange is a round. In a round, every agent answers, all at the same time or one after another. Any arbiters, which are models with their own instructions, answer after the agents. A new table starts with one arbiter named Summarizer, which sums up the chat and each agent's latest reply in a sentence each; you can change it or remove it. Then the table waits for you: add a note, have a private conversation with one agent, or press Next round.
 
 One setting, Interaction, changes how a table works. Independent: each agent reads only you. Parallel: the agents read each other and answer at the same time. Round robin: the agents read each other and answer one after another in list order, each reading the replies given before it. Arbiters read everything in every case.
