@@ -4,7 +4,17 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import type { ModelsResponse, TableStore } from "@/lib/types";
 import { FIXTURE_MODELS, isFixtureName, previewTable } from "@/lib/ui/fixtures";
 import { indexStore, storageWarningStore } from "@/lib/ui/storage";
-import { deleteTable, getDraft, isDraft, openTable, releaseDraft, renameTable, storesVersion, subscribeStores } from "@/lib/ui/tables";
+import {
+  deleteTable,
+  getDraft,
+  isDraft,
+  openTable,
+  releaseDraft,
+  renameTable,
+  storesVersion,
+  subscribeStores,
+  tableLoad,
+} from "@/lib/ui/tables";
 import { useTable } from "@/lib/ui/useStore";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsModal } from "./SettingsModal";
@@ -99,7 +109,7 @@ export default function App() {
   const models = useModels();
   const recent = useSyncExternalStore(indexStore.subscribe, indexStore.get, indexStore.server);
   const storageWarning = useSyncExternalStore(storageWarningStore.subscribe, storageWarningStore.get, storageWarningStore.server);
-  // Re-renders when a table is reloaded because another tab saved it.
+  // Re-renders when a table loads from the server, or is reloaded because it changed elsewhere.
   useSyncExternalStore(subscribeStores, storesVersion, () => 0);
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [participantsOpen, setParticipantsOpen] = useState(true);
@@ -109,7 +119,8 @@ export default function App() {
   const data = preview ? FIXTURE_MODELS : models.data;
 
   // Looking up a store is cheap and gives the same store each time, so it is
-  // done on every render. That also picks up a store another tab replaced.
+  // done on every render. That also picks up a store that was just fetched or
+  // replaced.
   let store: TableStore | null = null;
   if (route?.view === "preview") store = isFixtureName(route.name) ? previewTable(route.name) : null;
   else if (route?.view === "table") store = openTable(route.id);
@@ -177,21 +188,26 @@ export default function App() {
     let title = "Loading";
     let body: React.ReactNode = <p>Loading the model list.</p>;
     if (route.view === "table") {
-      title = "This table could not be found";
-      body = (
-        <>
-          <p>It may have been deleted, or it was saved in a different browser. Tables are saved only in the browser where they ran.</p>
-          <button type="button" className="btn primary" onClick={newTable}>
-            New table
-          </button>
-        </>
-      );
+      const load = tableLoad(route.id);
+      if (load?.state === "loading") {
+        body = <p>Loading the conversation.</p>;
+      } else {
+        title = load?.state === "failed" ? "This conversation could not be loaded" : "This conversation could not be found";
+        body = (
+          <>
+            <p>{load?.state === "failed" ? load.message : "It may have been deleted."}</p>
+            <button type="button" className="btn primary" onClick={newTable}>
+              New conversation
+            </button>
+          </>
+        );
+      }
     } else if (route.view === "preview") {
       title = "No preview with that name";
       body = <p>Try /#/preview/new, group, independent or running.</p>;
     } else if (models.error) {
-      title = "The table could not be set up";
-      body = <p>A new table needs the model list to choose its agents.</p>;
+      title = "The conversation could not be set up";
+      body = <p>A new conversation needs the model list to choose its agents.</p>;
     }
     screen = (
       <main className="main">

@@ -4,7 +4,7 @@
 import type { Arbiter, Maker, ModelInfo, ModelsResponse, PrivateMessage, Reply, Seat, SeatId, Table, ToolActivity } from "@/lib/types";
 import { SEAT_LETTERS } from "@/lib/types";
 
-export const UNTITLED = "Untitled table";
+export const UNTITLED = "Untitled conversation";
 export const STOPPED = "Stopped";
 export const MAX_SEATS = SEAT_LETTERS.length;
 const DEFAULT_SEAT_COUNT = 4;

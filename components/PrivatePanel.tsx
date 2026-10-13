@@ -117,7 +117,7 @@ export function PrivatePanel({
         </div>
         <button type="button" className="btn back" onClick={onClose}>
           <Icon name="arrowLeft" />
-          Back to the table
+          Back to the conversation
         </button>
       </div>
     </aside>

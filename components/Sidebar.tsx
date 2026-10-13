@@ -25,7 +25,7 @@ export function Sidebar({
   recent: TableSummary[];
   currentId: string | null;
   currentTitle: string;
-  showCurrent: boolean; // the open table is a draft or preview that is not in the saved list
+  showCurrent: boolean; // the open conversation is a draft or preview that is not in the saved list
   mock: boolean;
   onNew: () => void;
   onRename: (id: string, title: string) => void;
@@ -74,10 +74,10 @@ export function Sidebar({
 
       <button type="button" className="btn new-btn" onClick={onNew}>
         <Icon name="plus" />
-        New table
+        New conversation
       </button>
 
-      <nav className="recent" aria-label="Recent tables" ref={navRef}>
+      <nav className="recent" aria-label="Recent conversations" ref={navRef}>
         <h2 className="side-h">Recent</h2>
         <ul>
           {showCurrent ? (
@@ -134,7 +134,7 @@ export function Sidebar({
                       tabIndex={-1}
                       onClick={async () => {
                         closeMenu(true);
-                        if (await confirm({ message: `Delete “${title}”? This removes it from this browser.`, action: "Delete" })) {
+                        if (await confirm({ message: `Delete “${title}”? This removes it from this computer.`, action: "Delete" })) {
                           onDelete(t.id);
                         }
                       }}
@@ -212,7 +212,7 @@ function RowRename({ title, onDone }: { title: string; onDone: (next: string | n
     <input
       className="row-input"
       value={value}
-      aria-label="Table title"
+      aria-label="Conversation title"
       maxLength={120}
       autoFocus
       onFocus={(e) => e.target.select()}

@@ -38,6 +38,16 @@ Web search needs the gateway key. With provider keys only, an agent with browsin
 
 Environment variables still work, for example in `.env.local`: `AI_GATEWAY_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY` (or `GEMINI_API_KEY`) and `XAI_API_KEY`. A key saved in Settings wins over the same key in the environment. Restart the server after you change `.env.local`.
 
+Your conversations and presets are saved next to the settings file, so they stay the same across browsers, ports and restarts. Each conversation is one file in `~/.consortium/conversations/`, named by the conversation's id, and the presets are one list in `~/.consortium/presets.json`. To back up your history, copy `~/.consortium`. To delete a conversation outside the app, delete its file. The browser keeps only a cache of what the server has saved.
+
+```
+~/.consortium/
+  settings.json
+  presets.json
+  conversations/
+    <conversation id>.json
+```
+
 ## Using your Claude Code and Codex subscriptions
 
 If Claude Code or Codex is installed on this machine, you can choose it as the model for any agent or arbiter. Calls then run through that tool and bill your Claude or ChatGPT subscription, with no gateway key needed.
@@ -70,11 +80,11 @@ npm run build
 - `docs/design/round-by-round.html` holds the design, which the app follows for layout and copy.
 - `lib/types.ts` is the shared data model.
 - `lib/engine/` holds the table store, the prompts the models read, and the markdown export.
-- `lib/server/` and `app/api/` call the models through the AI Gateway or a provider's API (`lib/server/providers.ts`), or through Claude Code and Codex in `lib/server/cli.ts`, with the sample replies in `lib/server/mock.ts`. `lib/server/settings.ts` reads and writes the settings file.
+- `lib/server/` and `app/api/` call the models through the AI Gateway or a provider's API (`lib/server/providers.ts`), or through Claude Code and Codex in `lib/server/cli.ts`, with the sample replies in `lib/server/mock.ts`. `lib/server/settings.ts` reads and writes the settings file, and `lib/server/conversations.ts` and `lib/server/presets.ts` save conversations and presets under the same folder, served by `app/api/conversations` and `app/api/presets`.
 - `components/` and `lib/ui/` hold the interface.
 
-Tables are saved in your browser's local storage.
+Conversations and presets are files under `~/.consortium`, as described in Settings.
 
 ## Local use only
 
-This version is meant to run on your own machine. The routes have no sign-in, so anyone who can reach a deployed copy could read your saved API keys, spend your gateway or provider credit, or use your Claude and ChatGPT subscriptions. The page-reading tool can also reach addresses on your local network, which is useful for reviewing local and staging sites. Do not deploy it publicly without adding authentication first.
+This version is meant to run on your own machine. The routes have no sign-in, so anyone who can reach a deployed copy could read your saved API keys and conversations, spend your gateway or provider credit, or use your Claude and ChatGPT subscriptions. The page-reading tool can also reach addresses on your local network, which is useful for reviewing local and staging sites. Do not deploy it publicly without adding authentication first.

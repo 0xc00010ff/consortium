@@ -331,3 +331,49 @@ export interface SettingsUpdate {
   keys?: Partial<Record<KeyName, string | null>>;
   toolPaths?: Partial<Record<"claude" | "codex", string | null>>;
 }
+
+// ---------- Saved conversations and presets (app/api/conversations, app/api/presets) ----------
+
+// Conversations (the code calls them tables) and presets are saved on disk
+// by the server, under ~/.consortium
+// (or $CONSORTIUM_HOME), so they survive restarts, ports and browsers. The
+// browser keeps only a cache.
+
+export interface TableSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TablesResponse {
+  tables: TableSummary[]; // newest first by updatedAt
+}
+
+// GET /api/conversations -> TablesResponse
+// GET /api/conversations/<id> -> TableResponse, or 404
+// PUT /api/conversations/<id> with TableResponse -> { summary: TableSummary }.
+//   409 with the saved TableResponse when the saved copy is newer than
+//   table.updatedAt, unless ?force=1.
+// DELETE /api/conversations/<id> -> 204
+export interface TableResponse {
+  table: Table;
+}
+
+// A saved Participants setup: the interaction, turns, system prompt, agents
+// and arbiters of a table, without their ids.
+export interface Preset {
+  id: string;
+  name: string;
+  createdAt: number;
+  interaction: Interaction;
+  turns?: Turns;
+  instructions?: string;
+  seats: Array<Omit<Seat, "id">>;
+  arbiters: Array<Omit<Arbiter, "id">>;
+}
+
+// GET /api/presets -> PresetsResponse; PUT /api/presets with PresetsResponse -> PresetsResponse
+export interface PresetsResponse {
+  presets: Preset[];
+}

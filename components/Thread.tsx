@@ -64,7 +64,7 @@ export function Thread({
           {table.rounds.length === 0 ? (
             <div className="empty">
               <Icon name="message" size={24} />
-              <h2>Start the table</h2>
+              <h2>Start the conversation</h2>
               <p>Write the first message, and every agent will answer it.</p>
             </div>
           ) : (

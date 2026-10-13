@@ -54,7 +54,7 @@ export function TableScreen({
 
   // The store's own message says what went wrong and what to do.
   function report(err: unknown) {
-    setRunError(err instanceof Error && err.message ? err.message : "The table could not start replying. Try again.");
+    setRunError(err instanceof Error && err.message ? err.message : "The conversation could not start replying. Try again.");
   }
 
   // Returns false when the store refused the round, for example while it is
@@ -91,7 +91,7 @@ export function TableScreen({
     if (!(await confirm({ message: `Rewind to round ${roundNumber}? ${deleted}${back}${privateNote}`, action: "Rewind" }))) return;
     const host = store.rewind(roundNumber);
     if (!host) {
-      setRunError(`The table could not go back to round ${roundNumber}. Wait until it finishes replying, then try again.`);
+      setRunError(`The conversation could not go back to round ${roundNumber}. Wait until it finishes replying, then try again.`);
       return;
     }
     setRunError(null);
@@ -112,7 +112,7 @@ export function TableScreen({
           {sidebarHidden ? (
             <>
               <IconButton icon="sidebar" label="Show the sidebar" onClick={onShowSidebar} />
-              <IconButton icon="plus" label="New table" onClick={onNew} />
+              <IconButton icon="plus" label="New conversation" onClick={onNew} />
             </>
           ) : null}
           <TitleBlock table={table} busy={busy} onRename={(title) => store.edit({ title })} />
@@ -204,7 +204,7 @@ function TitleBlock({ table, busy, onRename }: { table: Table; busy: boolean; on
         <input
           className="title-input"
           value={value}
-          aria-label="Table title"
+          aria-label="Conversation title"
           maxLength={120}
           autoFocus
           onFocus={(e) => e.target.select()}
@@ -225,7 +225,7 @@ function TitleBlock({ table, busy, onRename }: { table: Table; busy: boolean; on
           type="button"
           className="title-btn"
           disabled={busy}
-          title={busy ? "You can rename the table when it finishes replying." : "Rename the table"}
+          title={busy ? "You can rename the conversation when it finishes replying." : "Rename the conversation"}
           onClick={() => {
             setValue(table.title);
             setEditing(true);

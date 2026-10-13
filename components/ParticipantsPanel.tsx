@@ -69,9 +69,9 @@ export function ParticipantsPanel({
   const [promptOpen, setPromptOpen] = useState<Partial<Record<SeatId, boolean>>>({});
   const canAddSeat = table.seats.length < MAX_SEATS && freshSeatLetter(table) !== null;
   const seatLimit =
-    table.seats.length >= MAX_SEATS ? "A table can have up to eight agents." : "All eight agent letters are in use at this table.";
+    table.seats.length >= MAX_SEATS ? "A conversation can have up to eight agents." : "All eight agent letters are in use in this conversation.";
   const status = disabled
-    ? "You can change the participants when the table finishes replying."
+    ? "You can change the participants when the conversation finishes replying."
     : table.rounds.length > 0
       ? "Changes apply from the next round."
       : null;

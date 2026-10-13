@@ -1,6 +1,6 @@
 # Consortium
 
-Consortium is a group chat of AI models. The host writes a message, every agent answers it in a round, any arbiters answer after the agents, and the host decides what happens next. One setting, Interaction, has three values: Independent (each agent reads only the host), Parallel (the agents read each other and answer at the same time), and Round robin (they read each other and answer one after another in list order).
+Consortium is a group chat of AI models. The host writes a message, every agent answers it in a round, any arbiters answer after the agents, and the host decides what happens next. In the interface a table is called a conversation; the code keeps the word table. One setting, Interaction, has three values: Independent (each agent reads only the host), Parallel (the agents read each other and answer at the same time), and Round robin (they read each other and answer one after another in list order).
 
 ## Cost rule
 

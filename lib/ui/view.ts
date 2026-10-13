@@ -17,7 +17,8 @@ import {
 import { nextSeatId } from "./engine";
 import { plural } from "./format";
 
-export const UNTITLED = "Untitled table";
+// The engine names new tables with this, so the two always match.
+export { UNTITLED } from "@/lib/engine/table";
 export const MAX_SEATS = SEAT_LETTERS.length;
 
 export function lastRound(table: Table): Round | undefined {

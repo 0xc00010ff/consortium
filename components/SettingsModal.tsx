@@ -114,7 +114,7 @@ export function SettingsModal({ data, onClose }: { data: ModelsResponse | null; 
             <ThemeRow />
           </section>
           <section className="psec">
-            <h3 className="lbl">New tables</h3>
+            <h3 className="lbl">New conversations</h3>
             <DefaultSetupRow data={data} />
           </section>
         </div>

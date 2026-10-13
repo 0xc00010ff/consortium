@@ -21,7 +21,7 @@ const models: ModelsResponse = {
 describe("newTable", () => {
   it("opens with four seats from the defaults, a Summarizer arbiter and Group interaction", () => {
     const table = newTable(models, models.models);
-    expect(table.title).toBe("Untitled table");
+    expect(table.title).toBe("Untitled conversation");
     expect(table.interaction).toBe("group");
     expect(table.arbiters).toEqual([
       {
@@ -63,7 +63,7 @@ describe("titleFrom", () => {
       "How should a small team plan its…",
     );
     expect(titleFrom("## Review this\n\nThe checkout screen")).toBe("Review this");
-    expect(titleFrom("   ")).toBe("Untitled table");
+    expect(titleFrom("   ")).toBe("Untitled conversation");
   });
 });
 

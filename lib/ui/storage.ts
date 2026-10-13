@@ -1,33 +1,26 @@
-// Saves tables in localStorage. Each table has its own key, and a small index
-// lists them for the recent tables list. Writes are throttled by the caller
-// through createSaver. When storage is full, the saved copy drops its images.
+// The browser's link to the saved tables on the server. The server keeps each
+// table on disk (see app/api/conversations), and this module keeps a small
+// cache: the list of summaries for the sidebar, which reloads every 5 seconds
+// while the page is visible. Writes are throttled by the caller through
+// createSaver, and tables.ts decides what to do with conflicts.
 //
-// Several tabs can share this storage. The index is always merged with the
-// stored copy before it is written, and the "storage" event tells this tab
-// when another tab has written (see tables.ts).
+// Tables used to live in localStorage. On the first load after the move, any
+// table still there is sent to the server once and then removed.
 
-import type { Table } from "@/lib/types";
+import type { Table, TableResponse, TableSummary, TablesResponse } from "@/lib/types";
+
+export type { TableSummary };
 
 export const PREFIX = "consortium.v2.";
-export const INDEX_KEY = `${PREFIX}index`;
-const TABLE_PREFIX = `${PREFIX}table.`;
-const OLD_PREFIX = "consortium.v1.";
-const MAX_INDEX = 100;
+const OLD_INDEX_KEY = `${PREFIX}index`;
+const OLD_TABLE_PREFIX = `${PREFIX}table.`;
+const OLD_V1_PREFIX = "consortium.v1.";
+const API = "/api/conversations";
+const POLL_MS = 5000;
+// Browsers refuse a keepalive request with a larger body.
+const KEEPALIVE_LIMIT = 60_000;
 
 export const STOPPED = "Stopped";
-
-export interface TableSummary {
-  id: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface SavedTable {
-  table: Table;
-  savedAt: number;
-  attachmentsDropped?: boolean;
-}
 
 // ---------- small external stores for React ----------
 
@@ -55,172 +48,231 @@ export function createStore<T>(initial: () => T, server: T) {
   };
 }
 
-const EMPTY_INDEX: TableSummary[] = [];
+// ---------- talking to the server ----------
 
-// The stored index, or null when storage cannot be read.
-function readStoredIndex(): TableSummary[] | null {
-  try {
-    const raw = window.localStorage.getItem(INDEX_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as TableSummary[]) : [];
-  } catch {
-    return null;
+const UNREACHABLE = "Check that the server is running.";
+
+// A failed request. Status 0 means the server could not be reached.
+class RequestError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
   }
 }
 
-export const indexStore = createStore<TableSummary[]>(() => {
-  removeOldKeys();
-  return readStoredIndex() ?? EMPTY_INDEX;
-}, EMPTY_INDEX);
-
-// Another tab changed the index.
-export function reloadIndex() {
-  const stored = readStoredIndex();
-  if (stored) indexStore.set(stored);
-}
-
-// Applies a change to the stored index, so tables another tab added are kept.
-// Tables that fall off the end of the list are removed from storage too,
-// since nothing could open them any more.
-function updateIndex(change: (list: TableSummary[]) => TableSummary[]) {
-  const merged = change(readStoredIndex() ?? indexStore.get()).sort((a, b) => b.updatedAt - a.updatedAt);
-  const kept = merged.slice(0, MAX_INDEX);
-  indexStore.set(kept);
+export async function request(url: string, init?: RequestInit): Promise<Response> {
   try {
-    for (const dropped of merged.slice(MAX_INDEX)) window.localStorage.removeItem(TABLE_PREFIX + dropped.id);
-    window.localStorage.setItem(INDEX_KEY, JSON.stringify(kept));
+    return await fetch(url, { cache: "no-store", ...init });
   } catch {
-    // The index is small. If even this fails, the warning already covers it.
+    throw new RequestError(0, UNREACHABLE);
   }
 }
 
-// Version 1 sessions cannot be opened by this version, so their keys only use space.
-let oldKeysRemoved = false;
-function removeOldKeys() {
-  if (oldKeysRemoved) return;
-  oldKeysRemoved = true;
-  try {
-    const old: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const key = window.localStorage.key(i);
-      if (key?.startsWith(OLD_PREFIX)) old.push(key);
-    }
-    old.forEach((k) => window.localStorage.removeItem(k));
-  } catch {
-    // Storage is unavailable. Nothing to clean up.
-  }
+export async function errorFrom(res: Response): Promise<RequestError> {
+  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+  return new RequestError(res.status, body?.error || `The server answered with status ${res.status}.`);
 }
 
-export function tableIdFromKey(key: string): string | null {
-  return key.startsWith(TABLE_PREFIX) ? key.slice(TABLE_PREFIX.length) : null;
+function isUnreachable(err: unknown): boolean {
+  return err instanceof RequestError && err.status === 0;
+}
+
+// "Could not save the conversation." followed by what went wrong.
+export function describeFailure(what: string, err: unknown): string {
+  if (isUnreachable(err)) return `${what} ${UNREACHABLE}`;
+  const detail = err instanceof Error && err.message ? err.message : "The request failed.";
+  return `${what} ${detail}`;
+}
+
+function tableUrl(id: string, force = false): string {
+  return `${API}/${encodeURIComponent(id)}${force ? "?force=1" : ""}`;
 }
 
 // ---------- the storage warning ----------
 
-// A plain message shown when saving fails, or null when all is well. It
-// belongs to the table that raised it and stays until that table saves.
+// A plain message shown when loading or saving fails, or null when all is
+// well. Each source (the list, one table, the presets) raises and clears its
+// own warning, and the newest one shows.
 export const storageWarningStore = createStore<string | null>(() => null, null);
-let warning: { tableId: string; table: Table } | null = null;
+const warnings = new Map<string, string>();
 
-function raiseWarning(table: Table, message: string) {
-  warning = { tableId: table.id, table };
-  storageWarningStore.set(message);
+export function setWarning(source: string, message: string | null) {
+  warnings.delete(source);
+  if (message) warnings.set(source, message);
+  const newest = [...warnings.values()].at(-1) ?? null;
+  if (storageWarningStore.get() !== newest) storageWarningStore.set(newest);
 }
 
-function clearWarningFor(tableId: string) {
-  if (warning?.tableId !== tableId) return;
-  warning = null;
-  storageWarningStore.set(null);
+// ---------- the list of saved tables ----------
+
+const EMPTY_INDEX: TableSummary[] = [];
+const removedIds = new Set<string>(); // deleted here, so a late answer does not bring them back
+const changedHereAt = new Map<string, number>(); // when this page last saved or renamed each table
+
+export const indexStore = createStore<TableSummary[]>(() => {
+  startSync();
+  return EMPTY_INDEX;
+}, EMPTY_INDEX);
+
+function setIndex(list: TableSummary[]) {
+  const next = list.filter((s) => !removedIds.has(s.id)).sort((a, b) => b.updatedAt - a.updatedAt);
+  const current = indexStore.get();
+  const same =
+    next.length === current.length &&
+    next.every((s, i) => s.id === current[i].id && s.title === current[i].title && s.updatedAt === current[i].updatedAt);
+  if (!same) indexStore.set(next);
 }
 
-// ---------- attachments ----------
-
-function dropAttachments(table: Table): Table {
-  const threads: Table["privateThreads"] = {};
-  for (const [id, thread] of Object.entries(table.privateThreads)) {
-    threads[id as keyof typeof threads] = thread?.map((m) => (m.attachments?.length ? { ...m, attachments: [] } : m));
-  }
-  return {
-    ...table,
-    rounds: table.rounds.map((r) => (r.host.attachments.length ? { ...r, host: { ...r.host, attachments: [] } } : r)),
-    privateThreads: threads,
-  };
+function upsertSummary(summary: TableSummary) {
+  changedHereAt.set(summary.id, Date.now());
+  setIndex([summary, ...indexStore.get().filter((s) => s.id !== summary.id)]);
 }
 
-export function isQuotaError(err: unknown): boolean {
-  return (
-    err instanceof DOMException &&
-    (err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED" || err.code === 22)
-  );
+// The server's list, and when the request for it began.
+export interface IndexSnapshot {
+  tables: TableSummary[];
+  startedAt: number;
 }
 
-// ---------- read and write ----------
+let loading: Promise<IndexSnapshot | null> | null = null;
 
-// Writes a table and returns the time it was saved, or null when it failed.
-export function writeTable(table: Table): number | null {
-  const key = TABLE_PREFIX + table.id;
-  const savedAt = Date.now();
-  let saved: SavedTable = { table, savedAt };
-  try {
+// Loads the list from the server. Resolves to null when that failed.
+export function reloadIndex(): Promise<IndexSnapshot | null> {
+  if (loading) return loading;
+  const startedAt = Date.now();
+  loading = (async () => {
     try {
-      window.localStorage.setItem(key, JSON.stringify(saved));
+      const res = await request(API);
+      if (!res.ok) throw await errorFrom(res);
+      const { tables } = (await res.json()) as TablesResponse;
+      // A save made here after the request began is newer than the answer.
+      const byId = new Map(tables.map((s) => [s.id, s]));
+      for (const s of indexStore.get()) {
+        const fetched = byId.get(s.id);
+        if ((changedHereAt.get(s.id) ?? 0) >= startedAt && (!fetched || fetched.updatedAt < s.updatedAt)) byId.set(s.id, s);
+      }
+      setIndex([...byId.values()]);
+      setWarning("index", null);
+      return { tables, startedAt };
     } catch (err) {
-      if (!isQuotaError(err)) throw err;
-      saved = { table: dropAttachments(table), savedAt, attachmentsDropped: true };
-      window.localStorage.setItem(key, JSON.stringify(saved));
+      setWarning("index", describeFailure("Could not load your conversations.", err));
+      return null;
+    } finally {
+      loading = null;
     }
+  })();
+  return loading;
+}
+
+// ---------- polling ----------
+
+// tables.ts and presets.ts listen here to bring in changes from other tabs.
+const refreshListeners = new Set<(snapshot: IndexSnapshot | null) => void>();
+
+export function onRefresh(listener: (snapshot: IndexSnapshot | null) => void) {
+  refreshListeners.add(listener);
+}
+
+async function refresh() {
+  const snapshot = await reloadIndex();
+  refreshListeners.forEach((l) => l(snapshot));
+}
+
+let started = false;
+
+// Loads the list, moves any tables left in localStorage to the server, then
+// reloads every 5 seconds while the page is visible.
+export function startSync() {
+  if (started || typeof window === "undefined") return;
+  started = true;
+  removeV1Keys();
+  void (async () => {
+    const first = await reloadIndex();
+    if (first && oldTableKeys().length) {
+      await migrateTables(first.tables);
+      await reloadIndex();
+    }
+  })();
+  window.setInterval(() => {
+    if (document.visibilityState === "visible") void refresh();
+  }, POLL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void refresh();
+  });
+}
+
+// ---------- read, write, delete ----------
+
+export type WriteResult =
+  | { status: "saved"; summary: TableSummary }
+  | { status: "conflict"; saved: Table } // the saved copy is newer
+  | { status: "failed" };
+
+// The table on the server, or null when there is none. Throws when the server
+// cannot be reached or answers with an error.
+export async function readTable(id: string): Promise<Table | null> {
+  const res = await request(tableUrl(id));
+  if (res.status === 404) return null;
+  if (!res.ok) throw await errorFrom(res);
+  const { table } = (await res.json()) as TableResponse;
+  return table?.id ? normalizeTable(table) : null;
+}
+
+// Saves the whole table. A failure raises the warning, and the next save that
+// works clears it.
+export async function writeTable(table: Table, { force = false } = {}): Promise<WriteResult> {
+  const body = JSON.stringify({ table } satisfies TableResponse);
+  try {
+    const res = await request(tableUrl(table.id, force), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: leaving && body.length < KEEPALIVE_LIMIT,
+    });
+    if (res.status === 409 && !force) {
+      const { table: saved } = (await res.json()) as TableResponse;
+      return { status: "conflict", saved: normalizeTable(saved) };
+    }
+    if (!res.ok) throw await errorFrom(res);
+    const { summary } = (await res.json()) as { summary: TableSummary };
+    setWarning(`table:${table.id}`, null);
+    if (!removedIds.has(table.id)) upsertSummary(summary);
+    return { status: "saved", summary };
   } catch (err) {
-    raiseWarning(
-      table,
-      isQuotaError(err)
-        ? `Browser storage is full, so “${table.title}” is not being saved. Delete older tables from the list on the left to make room.`
-        : `“${table.title}” could not be saved in the browser. It will be lost when you close the page.`,
-    );
-    return null;
+    setWarning(`table:${table.id}`, describeFailure("Could not save the conversation.", err));
+    return { status: "failed" };
   }
-  if (saved.attachmentsDropped) {
-    raiseWarning(
-      table,
-      `Browser storage is almost full, so “${table.title}” is saved without its images. Delete older tables from the list on the left to keep images.`,
-    );
-  } else {
-    clearWarningFor(table.id);
-  }
-
-  const summary: TableSummary = { id: table.id, title: table.title, createdAt: table.createdAt, updatedAt: savedAt };
-  updateIndex((list) => [summary, ...list.filter((s) => s.id !== table.id)]);
-  return savedAt;
 }
 
-export function readTable(id: string): { table: Table; savedAt: number } | null {
+// Shows a new title in the list before the save that carries it finishes.
+export function renameInIndex(id: string, title: string) {
+  const summary = indexStore.get().find((s) => s.id === id);
+  if (summary) upsertSummary({ ...summary, title, updatedAt: Date.now() });
+}
+
+// Removes the table from the list at once, then from the server once any
+// save still in flight has finished. Resolves to false when the delete failed,
+// in which case the table comes back on the next reload.
+export async function removeTable(id: string, after?: Promise<unknown> | null): Promise<boolean> {
+  removedIds.add(id);
+  setIndex(indexStore.get());
+  setWarning(`table:${id}`, null);
+  setWarning(`delete:${id}`, null);
+  await after?.catch(() => {});
   try {
-    const raw = window.localStorage.getItem(TABLE_PREFIX + id);
-    if (!raw) return null;
-    const saved = JSON.parse(raw) as SavedTable;
-    if (!saved?.table?.id) return null;
-    return { table: normalizeTable(saved.table), savedAt: saved.savedAt ?? 0 };
-  } catch {
-    return null;
+    const res = await request(tableUrl(id), { method: "DELETE" });
+    if (!res.ok && res.status !== 404) throw await errorFrom(res);
+    return true;
+  } catch (err) {
+    removedIds.delete(id);
+    setWarning(`delete:${id}`, describeFailure("Could not delete the conversation.", err));
+    return false;
+  } finally {
+    void reloadIndex();
   }
 }
-
-export function removeTable(id: string) {
-  try {
-    window.localStorage.removeItem(TABLE_PREFIX + id);
-  } catch {
-    // Nothing to do. The index entry is removed below either way.
-  }
-  updateIndex((list) => list.filter((s) => s.id !== id));
-  if (warning?.tableId === id) {
-    clearWarningFor(id);
-  } else if (warning) {
-    // Deleting a table frees space, so try the table that could not be saved again.
-    writeTable(warning.table);
-  }
-}
-
-// ---------- older or partial saved copies ----------
 
 // The store marks anything that was still running as stopped when it opens
 // a table. This only fills in fields an older saved copy may lack.
@@ -228,16 +280,91 @@ function normalizeTable(table: Table): Table {
   return { ...table, arbiters: table.arbiters ?? [], rounds: table.rounds ?? [], privateThreads: table.privateThreads ?? {} };
 }
 
+// ---------- moving tables out of localStorage ----------
+
+function oldTableKeys(): string[] {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(OLD_TABLE_PREFIX)) keys.push(key);
+    }
+    return keys;
+  } catch {
+    return [];
+  }
+}
+
+function removeKey(key: string) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Storage is unavailable. The key is tried again next time.
+  }
+}
+
+// Sends each table the server does not have yet, and removes the local copy
+// once the server holds it. When the server cannot be reached, the rest wait
+// for the next page load.
+async function migrateTables(onServer: TableSummary[]) {
+  const have = new Set(onServer.map((s) => s.id));
+  for (const key of oldTableKeys()) {
+    let table: Table | null = null;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(key) ?? "null") as { table?: Table } | null;
+      if (saved?.table?.id) table = normalizeTable(saved.table);
+    } catch {
+      table = null; // unreadable, so nothing could open it
+    }
+    if (!table || have.has(table.id)) {
+      removeKey(key);
+      continue;
+    }
+    try {
+      const res = await request(tableUrl(table.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ table } satisfies TableResponse),
+      });
+      // 409 means the server already has a newer copy.
+      if (res.ok || res.status === 409) removeKey(key);
+      else console.warn(`The saved conversation ${table.id} could not be moved to the server.`, (await errorFrom(res)).message);
+    } catch {
+      return;
+    }
+  }
+  if (oldTableKeys().length === 0) removeKey(OLD_INDEX_KEY);
+}
+
+// Version 1 sessions cannot be opened by this version, so their keys only use space.
+function removeV1Keys() {
+  try {
+    const old: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(OLD_V1_PREFIX)) old.push(key);
+    }
+    old.forEach(removeKey);
+  } catch {
+    // Storage is unavailable. Nothing to clean up.
+  }
+}
+
 // ---------- throttled saving ----------
 
 const pending = new Set<() => void>();
 let pagehideBound = false;
+let leaving = false; // the page is closing, so saves use keepalive
 
 function bindPagehide() {
   if (pagehideBound || typeof window === "undefined") return;
   pagehideBound = true;
   window.addEventListener("pagehide", () => {
+    leaving = true;
     pending.forEach((flush) => flush());
+  });
+  window.addEventListener("pageshow", () => {
+    leaving = false;
   });
 }
 

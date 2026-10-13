@@ -85,8 +85,8 @@ class Store implements TableStore {
   isBusy = (): boolean => this.job !== null;
 
   sendRound = (message: Message): Promise<void> => {
-    if (this.job) return Promise.reject(new Error("The table is busy. Wait for the current round to finish, or stop it."));
-    if (this.table.seats.length === 0) return Promise.reject(new Error("The table has no agents. Add an agent, then try again."));
+    if (this.job) return Promise.reject(new Error("The conversation is busy. Wait for the current round to finish, or stop it."));
+    if (this.table.seats.length === 0) return Promise.reject(new Error("The conversation has no agents. Add an agent, then try again."));
     if (!this.table.seats.some(isOn)) return Promise.reject(new Error("All agents are off. Turn one on, then try again."));
     const job = this.startJob();
     return Promise.race([this.runRound(job, message), job.stopped]);
@@ -94,7 +94,7 @@ class Store implements TableStore {
 
   // Talks privately with an agent (by letter) or an arbiter (by id).
   sendPrivate = (participantId: string, message: Message): Promise<void> => {
-    if (this.job) return Promise.reject(new Error("The table is busy. Wait for it to finish, or stop it."));
+    if (this.job) return Promise.reject(new Error("The conversation is busy. Wait for it to finish, or stop it."));
     const atTable = this.table.seats.some((s) => s.id === participantId) || this.table.arbiters.some((a) => a.id === participantId);
     if (!atTable) {
       const isLetter = (SEAT_LETTERS as readonly string[]).includes(participantId);

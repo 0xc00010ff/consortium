@@ -146,7 +146,7 @@ const CHECKOUT_IMAGE: Attachment = {
 function newFixture(): Table {
   return {
     id: "preview-new",
-    title: "Untitled table",
+    title: "Untitled conversation",
     createdAt: T0,
     updatedAt: T0,
     interaction: "group",
@@ -284,7 +284,7 @@ function groupFixture(): Table {
         pm("host", "Monthly churn is already low, about 3 percent. Does that weaken your case?", 2),
         pm(
           "seat",
-          "Yes, somewhat. At 3 percent the churn saving is small, so the annual plan becomes mostly a cash-flow move. I would still ship it, but I would no longer argue it beats A’s first-week work. I will say so if the table asks.",
+          "Yes, somewhat. At 3 percent the churn saving is small, so the annual plan becomes mostly a cash-flow move. I would still ship it, but I would no longer argue it beats A’s first-week work. I will say so if the host asks.",
           2,
           5100,
         ),

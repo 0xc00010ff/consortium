@@ -1,6 +1,6 @@
 # Consortium v2 specification
 
-Consortium is a group chat of AI models. You write a message, every agent at the table answers it, and you decide what happens next.
+Consortium is a group chat of AI models. In the interface a table is called a conversation; the code and this document keep the word table. You write a message, every agent at the table answers it, and you decide what happens next.
 
 Each exchange is a round. In a round, every agent answers, either all at the same time or one after another. Any arbiters, which are models with their own instructions, answer after the agents. Then the table waits for the host: a note, a private conversation with one agent or one arbiter, or the next round.
 
@@ -179,7 +179,7 @@ Follow `docs/design/round-by-round.html` for the layout, the structure and the c
 
 ### Behavior
 
-- A new table opens with one agent per default model (Claude Code and Codex when they are installed, otherwise one model per maker from the gateway), the Summarizer arbiter, Group interaction, and the first-message composer. Its title is "Untitled table" until the first message is sent, when it becomes the first few words of that message. The title can be edited by clicking it.
+- A new table opens with one agent per default model (Claude Code and Codex when they are installed, otherwise one model per maker from the gateway), the Summarizer arbiter, Group interaction, and the first-message composer. Its title is "Untitled conversation" until the first message is sent, when it becomes the first few words of that message. The title can be edited by clicking it.
 - Replies stream as they arrive. The thread stays scrolled to the newest content unless the user has scrolled up, in which case a "Scroll to newest" button appears.
 - Tables save to localStorage as they change. Reopening a table that was running shows its last state with the round marked stopped.
 - Export downloads the table as markdown: the title, the Interaction setting ("- Interaction: Independent", "Parallel" or "Round robin"), with a note such as "*Interaction changed to Round robin for this round.*" on a round where it changed, the list of participants with ", off" after an agent that is off, the host's instructions, each round with the host message and every reply, and each private conversation under the round it followed, the agents' first in speaking order, then the arbiters' in arbiter order. A conversation with an arbiter is headed "### Private conversation with Tracker, after round 1", and its replies start with "**Tracker · Arbiter · Claude Haiku 5.5:**". Votes and agents that sat out a round appear as they do in the transcript.

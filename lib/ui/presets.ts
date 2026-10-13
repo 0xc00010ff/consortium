@@ -1,46 +1,66 @@
 "use client";
 
 // Saved Participants setups. A preset holds the interaction, turns, system
-// prompt, agents and arbiters of a table, without their ids. All presets are
-// one JSON array in localStorage, so every tab shares them; the "storage"
-// event brings in another tab's changes.
+// prompt, agents and arbiters of a table, without their ids. The server keeps
+// the whole list on disk (see app/api/presets). Each change here is applied to
+// a fresh copy of the server's list and written back whole, so presets saved
+// in another tab are kept, and the list reloads along with the tables.
+//
+// Presets used to live in localStorage. The first save after the move merges
+// any left there into the server's list by id, then removes them.
 
 import { useSyncExternalStore } from "react";
 import {
   SEAT_LETTERS,
   type Arbiter,
-  type Interaction,
   type ModelInfo,
   type ModelsResponse,
+  type Preset,
+  type PresetsResponse,
   type Seat,
   type Table,
   type TableEdit,
-  type Turns,
 } from "@/lib/types";
 import { SUMMARIZER_INSTRUCTIONS, SUMMARIZER_NAME } from "./engine";
 import { uid } from "./format";
-import { createStore, isQuotaError, PREFIX, storageWarningStore } from "./storage";
+import { createStore, describeFailure, errorFrom, onRefresh, PREFIX, request, setWarning, startSync } from "./storage";
 
-export const PRESETS_KEY = `${PREFIX}presets`;
+export type { Preset };
 
-export interface Preset {
-  id: string;
-  name: string;
-  createdAt: number;
-  interaction: Interaction;
-  turns?: Turns;
-  instructions?: string;
-  seats: Array<Omit<Seat, "id">>;
-  arbiters: Array<Omit<Arbiter, "id">>;
-}
-
+const API = "/api/presets";
+const OLD_PRESETS_KEY = `${PREFIX}presets`;
 const EMPTY: Preset[] = [];
 
-// The stored list, or null when storage cannot be read.
-function readStored(): Preset[] | null {
+type Change = (list: Preset[]) => Preset[];
+
+let server: Preset[] = EMPTY; // the list as last read from or written to the server
+let queue: Change[] = []; // changes made here and not yet saved
+let fromLocalStorage: Preset[] | null = null; // presets still waiting to move to the server
+let syncing = false;
+let syncAgain = false;
+
+const presetsStore = createStore<Preset[]>(() => {
+  start();
+  return EMPTY;
+}, EMPTY);
+
+let started = false;
+function start() {
+  if (started || typeof window === "undefined") return;
+  started = true;
+  startSync();
+  fromLocalStorage = readOldPresets();
+  setTimeout(() => void sync(), 0);
+}
+
+onRefresh(() => {
+  if (started) void sync();
+});
+
+function readOldPresets(): Preset[] | null {
   try {
-    const raw = window.localStorage.getItem(PRESETS_KEY);
-    if (!raw) return [];
+    const raw = window.localStorage.getItem(OLD_PRESETS_KEY);
+    if (!raw) return null;
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as Preset[]) : [];
   } catch {
@@ -48,42 +68,72 @@ function readStored(): Preset[] | null {
   }
 }
 
-let bound = false;
-function bindStorageEvent() {
-  if (bound || typeof window === "undefined") return;
-  bound = true;
-  window.addEventListener("storage", (e) => {
-    if (e.storageArea !== window.localStorage) return;
-    if (e.key !== null && e.key !== PRESETS_KEY) return;
-    const stored = readStored();
-    if (stored) presetsStore.set(stored);
-  });
+function withOldPresets(list: Preset[]): Preset[] {
+  if (!fromLocalStorage) return list;
+  const ids = new Set(list.map((p) => p.id));
+  return [...list, ...fromLocalStorage.filter((p) => !ids.has(p.id))];
 }
 
-const presetsStore = createStore<Preset[]>(() => {
-  bindStorageEvent();
-  return readStored() ?? EMPTY;
-}, EMPTY);
+// The server's list with this page's unsaved changes on top.
+function show() {
+  const next = queue.reduce((list, change) => change(list), withOldPresets(server));
+  if (JSON.stringify(next) !== JSON.stringify(presetsStore.get())) presetsStore.set(next);
+}
 
-// The warning this file raised, so it is cleared only if it is still showing.
-let shownWarning: string | null = null;
-
-// Applies a change to the stored list, so presets another tab added are kept.
-// The change shows here even when it cannot be written.
-function update(change: (list: Preset[]) => Preset[], name: string) {
-  const next = change(readStored() ?? presetsStore.get());
-  presetsStore.set(next);
-  try {
-    window.localStorage.setItem(PRESETS_KEY, JSON.stringify(next));
-    if (shownWarning && storageWarningStore.get() === shownWarning) storageWarningStore.set(null);
-    shownWarning = null;
-  } catch (err) {
-    if (storageWarningStore.get()) return; // a table's warning already covers it
-    shownWarning = isQuotaError(err)
-      ? `Browser storage is full, so the preset “${name}” is not saved. Delete older tables from the list on the left to make room.`
-      : `The preset “${name}” could not be saved in the browser. It will be lost when you close the page.`;
-    storageWarningStore.set(shownWarning);
+// Reads the server's list and, when there is anything to save, writes it back
+// with the changes applied. A failed save keeps the changes for the next try.
+async function sync() {
+  if (syncing) {
+    syncAgain = true;
+    return;
   }
+  syncing = true;
+  try {
+    const res = await request(API);
+    if (!res.ok) throw await errorFrom(res);
+    let list = ((await res.json()) as PresetsResponse).presets;
+    const changes = queue.length;
+    const migrating = fromLocalStorage !== null;
+    if (changes || migrating) {
+      const next = queue.slice(0, changes).reduce((l, change) => change(l), withOldPresets(list));
+      const put = await request(API, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ presets: next } satisfies PresetsResponse),
+      });
+      if (!put.ok) throw await errorFrom(put);
+      list = ((await put.json()) as PresetsResponse).presets;
+      queue = queue.slice(changes);
+      if (migrating) {
+        fromLocalStorage = null;
+        try {
+          window.localStorage.removeItem(OLD_PRESETS_KEY);
+        } catch {
+          // Storage is unavailable. The presets are on the server either way.
+        }
+      }
+    }
+    server = list;
+    setWarning("presets", null);
+  } catch (err) {
+    // A failed read with nothing to save needs no warning of its own; the
+    // list of conversations already says the server cannot be reached.
+    if (queue.length) setWarning("presets", describeFailure("Could not save the presets.", err));
+  } finally {
+    syncing = false;
+    show();
+    if (syncAgain) {
+      syncAgain = false;
+      void sync();
+    }
+  }
+}
+
+// The change shows here at once and is saved in the background.
+function update(change: Change) {
+  queue.push(change);
+  show();
+  void sync();
 }
 
 export function listPresets(): Preset[] {
@@ -105,11 +155,13 @@ export function savePreset(name: string, table: Table) {
     seats: table.seats.map(withoutId),
     arbiters: table.arbiters.map(withoutId),
   };
+  const id = uid();
+  const createdAt = Date.now();
   update((list) => {
     const at = list.findIndex((p) => p.name === clean);
-    if (at === -1) return [...list, { id: uid(), name: clean, createdAt: Date.now(), ...setup }];
+    if (at === -1) return [...list, { id, name: clean, createdAt, ...setup }];
     return list.map((p, i) => (i === at ? { ...p, ...setup } : p));
-  }, clean);
+  });
 }
 
 function withoutId<T extends { id: string }>(item: T): Omit<T, "id"> {
@@ -119,8 +171,7 @@ function withoutId<T extends { id: string }>(item: T): Omit<T, "id"> {
 }
 
 export function deletePreset(id: string) {
-  const name = presetsStore.get().find((p) => p.id === id)?.name ?? "";
-  update((list) => list.filter((p) => p.id !== id), name);
+  update((list) => list.filter((p) => p.id !== id));
 }
 
 // ---------- Built-in presets ----------

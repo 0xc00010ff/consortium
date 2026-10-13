@@ -89,7 +89,7 @@ describe("a round", () => {
 
   it("sets the title from the first message unless the host has named the table", async () => {
     const { speak } = echo(1);
-    const store = createTableStore(makeTable({ title: "Untitled table" }), speak);
+    const store = createTableStore(makeTable({ title: "Untitled conversation" }), speak);
     await store.sendRound(message("Pricing ideas for Habitly. We need a plan."));
     expect(store.getTable().title).toBe("Pricing ideas for Habitly");
     await store.sendRound(message("Something else entirely"));
@@ -112,7 +112,7 @@ describe("a round", () => {
     const before = store.getTable();
     const pending = store.sendRound(message("Hello"));
     expect(store.isBusy()).toBe(true);
-    await expect(store.sendRound(message("Again"))).rejects.toThrow("The table is busy");
+    await expect(store.sendRound(message("Again"))).rejects.toThrow("The conversation is busy");
     await pending;
     expect(new Set(seen).size).toBe(seen.length);
     expect(seen).not.toContain(before);
@@ -425,7 +425,7 @@ describe("edits", () => {
     store.edit({ seats: [] });
     expect(store.getTable().seats.map((s) => s.id)).toEqual(["A", "C"]);
     store.edit({ title: "  " });
-    expect(store.getTable().title).toBe("Untitled table");
+    expect(store.getTable().title).toBe("Untitled conversation");
   });
 
   it("delete a removed arbiter's private thread, and keep the others", async () => {

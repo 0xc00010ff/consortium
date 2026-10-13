@@ -8,7 +8,7 @@ import { agentName, sitOut, votesLine } from "./context";
 
 export function tableToMarkdown(table: Table): string {
   const out: string[] = [];
-  out.push(`# ${table.title.trim() || "Untitled table"}`);
+  out.push(`# ${table.title.trim() || "Untitled conversation"}`);
 
   const facts = [
     `- Interaction: ${modeLabel(table)}`,

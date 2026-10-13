@@ -6,10 +6,11 @@
 // A key saved in the file wins over the same key in the environment, so the
 // host can override a key from .env.local without editing it.
 
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { KEY_NAMES, type KeyName, type Maker, type SettingsUpdate } from "@/lib/types";
+import { isRecord, writeFileAtomic } from "./files";
 
 export type ToolPathName = "claude" | "codex";
 export const TOOL_PATH_NAMES: ToolPathName[] = ["claude", "codex"];
@@ -78,16 +79,7 @@ export function readSettingsFile(file: string = settingsPath()): SettingsFile {
 // needed. An existing folder keeps its mode. The new content goes to a
 // temporary file first, so a failed write never leaves half a file.
 export function writeSettingsFile(settings: SettingsFile, file: string = settingsPath()): void {
-  const dir = path.dirname(file);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(temp, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
-  chmodSync(temp, 0o600);
-  renameSync(temp, file);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  writeFileAtomic(file, `${JSON.stringify(settings, null, 2)}\n`);
 }
 
 // ---------- Updates ----------

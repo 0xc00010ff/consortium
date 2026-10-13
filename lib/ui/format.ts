@@ -51,7 +51,7 @@ export function slugify(text: string): string {
     .trim()
     .replace(/[\s_]+/g, "-")
     .replace(/-+/g, "-");
-  if (slug.length <= 48) return slug || "table";
+  if (slug.length <= 48) return slug || "conversation";
   // Cut at a word boundary so the file name does not end mid-word.
   const cut = slug.slice(0, 49);
   const at = cut.lastIndexOf("-");
