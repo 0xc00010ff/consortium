@@ -89,3 +89,7 @@ Conversations and presets are files under `~/.consortium`, as described in Setti
 ## Local use only
 
 This version is meant to run on your own machine. The routes have no sign-in, so anyone who can reach a deployed copy could read your saved API keys and conversations, spend your gateway or provider credit, or use your Claude and ChatGPT subscriptions. The page-reading tool can also reach addresses on your local network, which is useful for reviewing local and staging sites. Do not deploy it publicly without adding authentication first.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
