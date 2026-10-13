@@ -1,5 +1,7 @@
 "use client";
 
+import { confirm } from "@/lib/ui/confirm";
+
 import { useEffect, useRef, useState } from "react";
 import { shortTime } from "@/lib/ui/format";
 import type { TableSummary } from "@/lib/ui/storage";
@@ -130,9 +132,11 @@ export function Sidebar({
                       type="button"
                       role="menuitem"
                       tabIndex={-1}
-                      onClick={() => {
+                      onClick={async () => {
                         closeMenu(true);
-                        if (window.confirm(`Delete “${title}”? This removes it from this browser.`)) onDelete(t.id);
+                        if (await confirm({ message: `Delete “${title}”? This removes it from this browser.`, action: "Delete" })) {
+                          onDelete(t.id);
+                        }
                       }}
                     >
                       Delete

@@ -6,6 +6,7 @@ import { FIXTURE_MODELS, isFixtureName, previewTable } from "@/lib/ui/fixtures";
 import { indexStore, storageWarningStore } from "@/lib/ui/storage";
 import { deleteTable, getDraft, isDraft, openTable, releaseDraft, renameTable, storesVersion, subscribeStores } from "@/lib/ui/tables";
 import { useTable } from "@/lib/ui/useStore";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsModal } from "./SettingsModal";
 import { Sidebar } from "./Sidebar";
 import { TableScreen } from "./TableScreen";
@@ -224,6 +225,7 @@ export default function App() {
       )}
       {screen}
       {settingsOpen ? <SettingsModal data={data} onClose={() => setSettingsOpen(false)} /> : null}
+      <ConfirmDialog />
     </div>
   );
 }

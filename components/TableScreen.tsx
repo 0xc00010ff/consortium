@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Attachment, ModelsResponse, SeatId, Table, TableStore } from "@/lib/types";
 import { downloadText, exportFilename } from "@/lib/ui/download";
+import { confirm } from "@/lib/ui/confirm";
 import { tableToMarkdown } from "@/lib/ui/engine";
 import { useStickToBottom } from "@/lib/ui/useStickToBottom";
 import { useTable } from "@/lib/ui/useStore";
@@ -77,7 +78,7 @@ export function TableScreen({
 
   // Deletes this round and the ones after it, after asking, and puts the
   // round's message back into the composer.
-  function rewind(roundNumber: number) {
+  async function rewind(roundNumber: number) {
     const last = table.rounds.length;
     const deleted =
       roundNumber === last ? `Round ${roundNumber} will be deleted` : `Rounds ${roundNumber} to ${last} will be deleted`;
@@ -86,7 +87,7 @@ export function TableScreen({
     const back = message && (message.text || message.attachments.length) ? `, and ${what} goes back into the composer.` : ".";
     const privateLost = Object.values(table.privateThreads).some((t) => t?.some((m) => m.afterRound >= roundNumber));
     const privateNote = privateLost ? ` Private messages sent after round ${roundNumber} will be deleted too.` : "";
-    if (!window.confirm(`Rewind to round ${roundNumber}? ${deleted}${back}${privateNote}`)) return;
+    if (!(await confirm({ message: `Rewind to round ${roundNumber}? ${deleted}${back}${privateNote}`, action: "Rewind" }))) return;
     const host = store.rewind(roundNumber);
     if (!host) {
       setRunError(`The table could not go back to round ${roundNumber}. Wait until it finishes replying, then try again.`);

@@ -1,5 +1,7 @@
 "use client";
 
+import { confirm } from "@/lib/ui/confirm";
+
 import { useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, useMemo } from "react";
 import {
   MAKER_LABELS,
@@ -78,11 +80,12 @@ export function ParticipantsPanel({
     onEdit({ seats: table.seats.map((s) => (s.id === id ? next : s)) });
   }
 
-  function removeSeat(seat: Seat) {
+  async function removeSeat(seat: Seat) {
     if (table.privateThreads[seat.id]?.length) {
-      const ok = window.confirm(
-        `Remove Agent ${seat.id}? Its private conversation will be deleted. Its replies stay in the thread.`,
-      );
+      const ok = await confirm({
+        message: `Remove Agent ${seat.id}? Its private conversation will be deleted. Its replies stay in the thread.`,
+        action: "Remove",
+      });
       if (!ok) return;
     }
     onEdit({ seats: table.seats.filter((s) => s.id !== seat.id) });
