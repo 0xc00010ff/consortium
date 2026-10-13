@@ -755,6 +755,15 @@ textarea::placeholder {
   border-radius: 4px;
 }
 
+/* The name field that replaces "Save new…" in the Presets menu. */
+.menu .menu-input {
+  width: 200px;
+  height: 28px;
+  margin: 2px 0;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
 .menu-line:hover,
 .menu-line:focus-within {
   background: var(--hover);

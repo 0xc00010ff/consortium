@@ -302,11 +302,21 @@ export function ParticipantsPanel({
 function Presets({ table, disabled, onEdit }: { table: Table; disabled: boolean; onEdit: (edit: TableEdit) => void }) {
   const presets = usePresets();
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  // "Save new…" turns into a name field inside the menu. The page cannot use
+  // window.prompt, which some browsers do not support.
+  const [naming, setNaming] = useState(false);
   const open = anchor !== null && !disabled;
 
   function close(refocus: boolean) {
     if (refocus) anchor?.focus();
     setAnchor(null);
+    setNaming(false);
+  }
+
+  function saveNamed(raw: string) {
+    const name = raw.trim();
+    if (name) savePreset(name, table);
+    close(true);
   }
 
   return (
@@ -365,18 +375,28 @@ function Presets({ table, disabled, onEdit }: { table: Table; disabled: boolean;
             </div>
           ))}
           {presets.length ? <div role="separator" className="menu-sep" /> : null}
-          <button
-            type="button"
-            role="menuitem"
-            tabIndex={-1}
-            onClick={() => {
-              close(true);
-              const name = window.prompt("Name this preset")?.trim();
-              if (name) savePreset(name, table);
-            }}
-          >
-            Save new…
-          </button>
+          {naming ? (
+            <input
+              className="input menu-input"
+              type="text"
+              aria-label="Preset name"
+              placeholder="Preset name"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  saveNamed(e.currentTarget.value);
+                } else if (e.key !== "Escape") {
+                  // Arrow keys and typing stay in the field. Escape still closes the menu.
+                  e.stopPropagation();
+                }
+              }}
+            />
+          ) : (
+            <button type="button" role="menuitem" tabIndex={-1} onClick={() => setNaming(true)}>
+              Save new…
+            </button>
+          )}
         </Menu>
       ) : null}
     </>
