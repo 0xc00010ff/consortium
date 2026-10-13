@@ -234,6 +234,24 @@ describe("stop", () => {
     expect(thread[1]).toMatchObject({ role: "seat", status: "error", error: "Stopped", text: "Half an answer" });
   });
 
+  it("stops an arbiter's private reply and keeps its text", async () => {
+    const signals: AbortSignal[] = [];
+    const speak: SpeakFn = async (_request, handlers, signal) => {
+      signals.push(signal);
+      handlers.onText?.("Half a summary", "Half a summary");
+      return untilAborted(signal);
+    };
+    const store = createTableStore(makeTable({ arbiters: [makeArbiter(1)] }), speak);
+    const pending = store.sendPrivate("arbiter-1", message("A question"));
+    await new Promise((r) => setTimeout(r, 80));
+    store.stop();
+    await pending;
+    expect(store.isBusy()).toBe(false);
+    expect(signals.every((s) => s.aborted)).toBe(true);
+    const thread = store.getTable().privateThreads["arbiter-1"] ?? [];
+    expect(thread[1]).toMatchObject({ role: "seat", status: "error", error: "Stopped", text: "Half a summary" });
+  });
+
   it("marks a table that was saved while running as stopped", () => {
     const table = makeTable({ seats: makeSeats(1) });
     table.rounds = [
@@ -295,6 +313,52 @@ describe("private conversations", () => {
   it("refuses a seat that is not at the table", async () => {
     const store = createTableStore(makeTable({ seats: makeSeats(2) }), echo().speak);
     await expect(store.sendPrivate("D", message("Hi"))).rejects.toThrow("Agent D is not at this table.");
+  });
+
+  it("works with an arbiter, which streams its reply into its own thread", async () => {
+    const { speak, calls } = echo(1);
+    const store = createTableStore(makeTable({ seats: makeSeats(2), arbiters: [makeArbiter(1)] }), speak);
+    await store.sendRound(message("Start"));
+    await store.sendPrivate("arbiter-1", message("Who is ahead?"));
+    await store.sendPrivate("arbiter-1", message("And B?"));
+
+    const table = store.getTable();
+    const thread = table.privateThreads["arbiter-1"] ?? [];
+    expect(thread.map((m) => [m.role, m.status, m.afterRound])).toEqual([
+      ["host", "done", 1],
+      ["seat", "done", 1],
+      ["host", "done", 1],
+      ["seat", "done", 1],
+    ]);
+    expect(thread[1].text).toBe("Tracker says hello in round 1.");
+    expect(Object.keys(table.privateThreads)).toEqual(["arbiter-1"]);
+    const last = calls[calls.length - 1].request;
+    expect(last.modelId).toBe("test/arbiter-1");
+    expect(last.mockHint).toEqual({ purpose: "private", interaction: "group", round: 1, arbiterName: "Tracker" });
+    expect(requestText(last)).toContain("**Host:** Who is ahead?\n\n**You:** Tracker says hello in round 1.\n\n**Host:** And B?");
+  });
+
+  it("refuses an arbiter that is not at the table", async () => {
+    const store = createTableStore(makeTable({ arbiters: [makeArbiter(1)] }), echo().speak);
+    await expect(store.sendPrivate("arbiter-2", message("Hi"))).rejects.toThrow("The arbiter arbiter-2 is not at this table.");
+    expect(store.isBusy()).toBe(false);
+    expect(store.getTable().privateThreads).toEqual({});
+  });
+
+  it("with an arbiter is carried into that arbiter's next round only", async () => {
+    const { speak, calls } = echo(1);
+    const store = createTableStore(makeTable({ seats: makeSeats(2), arbiters: [makeArbiter(1), makeArbiter(2)] }), speak);
+    await store.sendRound(message("Start"));
+    await store.sendPrivate("arbiter-2", message("Just between us"));
+    const before = calls.length;
+    await store.sendRound(message("Next"));
+    const round2 = calls.slice(before);
+    expect(round2).toHaveLength(4);
+    for (const call of round2) {
+      const text = requestText(call.request);
+      if (call.request.mockHint?.arbiterName === "Arbiter 2") expect(text).toContain("**Host:** Just between us");
+      else expect(text).not.toContain("Just between us");
+    }
   });
 });
 
@@ -362,6 +426,25 @@ describe("edits", () => {
     expect(store.getTable().seats.map((s) => s.id)).toEqual(["A", "C"]);
     store.edit({ title: "  " });
     expect(store.getTable().title).toBe("Untitled table");
+  });
+
+  it("delete a removed arbiter's private thread, and keep the others", async () => {
+    const { speak } = echo(1);
+    const store = createTableStore(makeTable({ arbiters: [makeArbiter(1), makeArbiter(2)] }), speak);
+    await store.sendRound(message("Start"));
+    await store.sendPrivate("arbiter-1", message("Hello Tracker"));
+    await store.sendPrivate("arbiter-2", message("Hello Arbiter 2"));
+    await store.sendPrivate("B", message("Hello B"));
+
+    // Renaming, reordering and switching off agents keeps the arbiters' threads.
+    const [a, b, c] = store.getTable().seats;
+    store.edit({ seats: [c, { ...b, name: "Skeptic", active: false }, a] });
+    expect(Object.keys(store.getTable().privateThreads).sort()).toEqual(["B", "arbiter-1", "arbiter-2"]);
+
+    store.edit({ arbiters: [store.getTable().arbiters[1]] });
+    expect(Object.keys(store.getTable().privateThreads).sort()).toEqual(["B", "arbiter-2"]);
+    store.edit({ arbiters: [] });
+    expect(Object.keys(store.getTable().privateThreads)).toEqual(["B"]);
   });
 });
 
@@ -488,6 +571,19 @@ describe("rewind", () => {
     await store.sendRound(message("Second, again"));
     expect(lastRound(store.getTable())).toMatchObject({ number: 2, status: "done" });
     expect(lastRound(store.getTable()).host.text).toBe("Second, again");
+  });
+
+  it("trims an arbiter's private thread the same way", async () => {
+    const store = createTableStore(makeTable({ seats: makeSeats(2), arbiters: [makeArbiter(1)] }), echo(1).speak);
+    await store.sendRound(message("First"));
+    await store.sendPrivate("arbiter-1", message("After one"));
+    await store.sendRound(message("Second"));
+    await store.sendPrivate("arbiter-1", message("After two"));
+
+    store.rewind(2);
+    expect(store.getTable().privateThreads["arbiter-1"]?.map((m) => m.text)).toEqual(["After one", "Tracker says hello in round 1."]);
+    store.rewind(1);
+    expect(store.getTable().privateThreads).toEqual({});
   });
 
   it("can take the table back to before the first round", async () => {

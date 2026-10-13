@@ -264,6 +264,15 @@ function groupFixture(): Table {
     arbiters: [TRACKER],
     rounds: [r1, r2],
     privateThreads: {
+      [TRACKER.id]: [
+        pm("host", "Which idea has the most support so far?", 1),
+        pm(
+          "seat",
+          "None yet. Each agent raised a different idea and no agent has backed another, so each of the four has one supporter. Round 2 should show whether any of them gains support.",
+          1,
+          3200,
+        ),
+      ],
       B: [
         pm("host", "How would you price the annual plan, and what discount?", 2),
         pm(
@@ -462,7 +471,7 @@ function previewStore(table: Table): TableStore {
       const privateThreads: Table["privateThreads"] = {};
       for (const [id, thread] of Object.entries(current.privateThreads)) {
         const kept = thread?.filter((m) => m.afterRound < roundNumber) ?? [];
-        if (kept.length) privateThreads[id as SeatId] = kept;
+        if (kept.length) privateThreads[id] = kept;
       }
       publish({
         ...current,

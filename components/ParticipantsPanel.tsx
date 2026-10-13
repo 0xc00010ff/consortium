@@ -91,6 +91,17 @@ export function ParticipantsPanel({
     onEdit({ seats: table.seats.filter((s) => s.id !== seat.id) });
   }
 
+  async function removeArbiter(arbiter: Arbiter) {
+    if (table.privateThreads[arbiter.id]?.length) {
+      const ok = await confirm({
+        message: `Remove ${arbiter.name || "this arbiter"}? Its private conversation will be deleted. Its replies stay in the thread.`,
+        action: "Remove",
+      });
+      if (!ok) return;
+    }
+    onEdit({ arbiters: table.arbiters.filter((a) => a.id !== arbiter.id) });
+  }
+
   function setArbiter(id: string, next: Arbiter) {
     onEdit({ arbiters: table.arbiters.map((a) => (a.id === id ? next : a)) });
   }
@@ -243,7 +254,7 @@ export function ParticipantsPanel({
                     <IconButton
                       icon="x"
                       label={`Remove ${arbiter.name || "this arbiter"}`}
-                      onClick={() => onEdit({ arbiters: table.arbiters.filter((a) => a.id !== arbiter.id) })}
+                      onClick={() => removeArbiter(arbiter)}
                       disabled={disabled}
                     />
                   </div>

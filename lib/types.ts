@@ -155,11 +155,12 @@ export interface Round {
   arbiters?: Arbiter[];
 }
 
-// A private conversation between the host and one seat. Only that seat
-// reads it. afterRound says where it sits in that seat's transcript.
+// A private conversation between the host and one participant, an agent or
+// an arbiter. Only that participant reads it. afterRound says where it sits
+// in that participant's transcript.
 export interface PrivateMessage {
   id: string;
-  role: "host" | "seat";
+  role: "host" | "seat"; // "seat" is the participant's side, for arbiters too
   text: string;
   attachments?: Attachment[];
   status: ReplyStatus; // host messages are always "done"
@@ -185,7 +186,8 @@ export interface Table {
   seats: Seat[];
   arbiters: Arbiter[]; // 0 or more
   rounds: Round[];
-  privateThreads: Partial<Record<SeatId, PrivateMessage[]>>;
+  // Keyed by participant id: a SeatId, or an arbiter id such as "arbiter-1".
+  privateThreads: Partial<Record<string, PrivateMessage[]>>;
   instructions?: string; // the host's prompt for every agent
 }
 
@@ -201,8 +203,9 @@ export interface TableStore {
   // Starts the next round with this host message. Resolves when the round
   // is done or stopped. Rejects only on a programming error.
   sendRound(message: { text: string; attachments: Attachment[] }): Promise<void>;
-  // Sends a private message to one seat and streams its reply.
-  sendPrivate(seatId: SeatId, message: { text: string; attachments: Attachment[] }): Promise<void>;
+  // Sends a private message to one participant, an agent (by letter) or an
+  // arbiter (by id), and streams its reply.
+  sendPrivate(participantId: string, message: { text: string; attachments: Attachment[] }): Promise<void>;
   stop(): void; // aborts whatever is in progress; partial text is kept
   edit(edit: TableEdit): void; // refused while busy
   // Adds delta (1 or -1) to a reply's votes. Allowed at any time; a model
@@ -231,8 +234,8 @@ export interface MockHint {
   purpose: "seat" | "arbiter" | "private";
   interaction: Interaction;
   round: number;
-  seatId?: SeatId;
-  arbiterName?: string;
+  seatId?: SeatId; // the agent, for a seat or private request
+  arbiterName?: string; // the arbiter, for an arbiter or private request
 }
 
 export interface SpeakRequest {

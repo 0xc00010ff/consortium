@@ -1339,6 +1339,10 @@ button.round-btn:focus-visible {
   box-shadow: inset 0 0 0 1px var(--border);
 }
 
+.msg.arbiter.hl {
+  margin-top: 6px;
+}
+
 /* A long reply is capped at about 12 lines, with a short fade when it overflows. */
 .clamp {
   position: relative;

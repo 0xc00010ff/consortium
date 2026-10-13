@@ -212,6 +212,86 @@ describe("private requests", () => {
   });
 });
 
+describe("private requests to an arbiter", () => {
+  const PRIVATE_NOW = "The host is now talking with you privately. The agents and the other arbiters do not see this. Reply to the host's last message.";
+
+  function withThread(): Table {
+    const base = makeTable({ arbiters: [makeArbiter(1, { toolModel: "haiku", browsing: true }), makeArbiter(2)] });
+    const table: Table = { ...base, rounds: [makeRound(base, 1, "Start"), makeRound(base, 2, "More")] };
+    table.privateThreads = {
+      "arbiter-1": [
+        privateMessage("host", "Who is ahead?", 1),
+        privateMessage("seat", "Agent B is ahead.", 1),
+        privateMessage("host", "And now?", 2),
+        privateMessage("seat", "", 2, { status: "queued" }),
+      ],
+      B: [privateMessage("host", "Secret for B", 1), privateMessage("seat", "B's secret answer", 1)],
+    };
+    return table;
+  }
+
+  it("use the arbiter's instructions and model, read everything, and place its own thread after the round it followed", () => {
+    const table = withThread();
+    const request = buildPrivateRequest(table, "arbiter-1");
+    const text = requestText(request);
+
+    expect(request.modelId).toBe("test/arbiter-1");
+    expect(request.toolModel).toBe("haiku");
+    expect(request.browsing).toBe(true);
+    expect(request.instructions).toContain(
+      "You are an arbiter named Tracker at a table of AI models. The agents are called A, B, C and D. The host runs the table. In each round, the agents answer first, and then you answer. You can read everything the host, the agents and the other arbiters have said. Follow these instructions from the host:\n\nKeep a numbered list",
+    );
+    for (const letter of ["A", "B", "C", "D"]) expect(text).toContain(`### Agent ${letter}\n\nAgent ${letter} reply in round 2.`);
+    expect(text).toContain("### Tracker (arbiter, you)\n\nTracker reply in round 2.");
+    expect(text).toContain("### Arbiter 2 (arbiter)\n\nArbiter 2 reply in round 2.");
+
+    const afterOne = "### Private conversation between the host and you, after round 1\n\n**Host:** Who is ahead?\n\n**You:** Agent B is ahead.";
+    expect(text).toContain(afterOne);
+    expect(text.indexOf(afterOne)).toBeGreaterThan(text.indexOf("### Arbiter 2 (arbiter)\n\nArbiter 2 reply in round 1."));
+    expect(text.indexOf(afterOne)).toBeLessThan(text.indexOf("## Round 2"));
+    expect(text).toContain("### Private conversation between the host and you, after round 2\n\n**Host:** And now?");
+    expect(text).not.toContain("Secret for B");
+
+    expect(request.messages[0].afterAttachments).toBe(`# Now\n\n${PRIVATE_NOW}`);
+    expect(request.maxOutputTokens).toBe(PRIVATE_MAX_OUTPUT_TOKENS);
+    expect(request.mockHint).toEqual({ purpose: "private", interaction: "group", round: 2, arbiterName: "Tracker" });
+  });
+
+  it("say only that the agents do not see it when there is one arbiter, and work before round 1", () => {
+    const table = makeTable({ arbiters: [makeArbiter(1)] });
+    table.privateThreads = { "arbiter-1": [privateMessage("host", "What will you track?", 0)] };
+    const request = buildPrivateRequest(table, "arbiter-1");
+    expect(requestText(request)).toBe(
+      "# Transcript\n\n### Private conversation between the host and you, before round 1\n\n**Host:** What will you track?\n\n# Now\n\nThe host is now talking with you privately. The agents do not see this. Reply to the host's last message.",
+    );
+    expect(request.instructions).toContain("You can read everything the host and the agents have said.");
+    expect(request.mockHint).toEqual({ purpose: "private", interaction: "group", round: 0, arbiterName: "Tracker" });
+  });
+
+  it("are refused for an arbiter that is not at the table", () => {
+    expect(() => buildPrivateRequest(makeTable(), "arbiter-3")).toThrow("The arbiter arbiter-3 is not at this table.");
+  });
+
+  it("carry into that arbiter's next round, and no other agent or arbiter reads them", () => {
+    const table = withThread();
+    table.privateThreads["arbiter-1"] = table.privateThreads["arbiter-1"]?.slice(0, 2);
+    const next: Table = { ...table, rounds: [...table.rounds, runningRound(table, 3, "Final round")] };
+    next.rounds[2].replies = next.rounds[2].replies.map((r) => doneReply(r.participantId, `Agent ${r.participantId} now.`, 3));
+
+    const own = requestText(buildArbiterRequest(next, "arbiter-1"));
+    expect(own).toContain("### Private conversation between the host and you, after round 1\n\n**Host:** Who is ahead?");
+    expect(own.indexOf("Who is ahead?")).toBeLessThan(own.indexOf("## Round 2"));
+    expect(own).not.toContain("Secret for B");
+
+    const other = requestText(buildArbiterRequest(next, "arbiter-2"));
+    expect(other).not.toContain("Who is ahead?");
+    expect(other).not.toContain("Private conversation");
+    for (const letter of ["A", "B", "C", "D"] as const) {
+      expect(requestText(buildSeatRequest(next, letter))).not.toContain("Who is ahead?");
+    }
+  });
+});
+
 // Everything a model reads in one request.
 const everything = (request: SpeakRequest) => `${request.instructions}\n\n${requestText(request)}`;
 

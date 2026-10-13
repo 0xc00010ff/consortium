@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Table } from "@/lib/types";
+import type { PrivateMessage, Table } from "@/lib/types";
 import { tableToMarkdown } from "./export";
 import { doneReply, makeArbiter, makeSeats, makeTable } from "./test-helpers";
 
@@ -186,6 +186,56 @@ describe("tableToMarkdown", () => {
     expect(markdown).toContain("### Agent C · Gemini 3.1 Pro\n\nC in 1.\n\n### Agent A · Claude Sonnet 5.5");
     expect(markdown.indexOf("Private conversation with Agent C")).toBeLessThan(markdown.indexOf("Private conversation with Agent A"));
   });
+  it("writes private conversations with arbiters after the agents' ones, in arbiter order", () => {
+    const seats = makeSeats(2);
+    const tracker = makeArbiter(1, { modelName: "Claude Haiku 5.5" });
+    const second = makeArbiter(2);
+    const message = (id: string, role: "host" | "seat", text: string): PrivateMessage => ({
+      id,
+      role,
+      text,
+      status: "done",
+      tools: [],
+      afterRound: 1,
+      createdAt: 0,
+    });
+    const base = makeTable({ seats, arbiters: [tracker, second] });
+    const table: Table = {
+      ...base,
+      rounds: [
+        {
+          number: 1,
+          interaction: "group",
+          host: { text: "Start.", attachments: [], createdAt: 0 },
+          replies: seats.map((s) => doneReply(s.id, `${s.id} in 1.`, 1)),
+          arbiterReplies: [doneReply("arbiter-1", "Tracker in 1.", 1), doneReply("arbiter-2", "Arbiter 2 in 1.", 1)],
+          status: "done",
+          seats,
+          arbiters: [tracker, second],
+        },
+      ],
+      privateThreads: {
+        "arbiter-2": [message("p1", "host", "To the second.")],
+        "arbiter-1": [message("p2", "host", "Who is ahead?"), message("p3", "seat", "Agent B is ahead.")],
+        B: [message("p4", "host", "To B.")],
+      },
+    };
+    const markdown = tableToMarkdown(table);
+    expect(markdown).toContain(
+      [
+        "### Arbiter 2 · Arbiter · Arbiter Model 2",
+        "Arbiter 2 in 1.",
+        "### Private conversation with Agent B, after round 1",
+        "**Host:** To B.",
+        "### Private conversation with Tracker, after round 1",
+        "**Host:** Who is ahead?",
+        "**Tracker · Arbiter · Claude Haiku 5.5:** Agent B is ahead.",
+        "### Private conversation with Arbiter 2, after round 1",
+        "**Host:** To the second.",
+      ].join("\n\n"),
+    );
+  });
+
   it("puts the host's name for an agent between the letter and the model", () => {
     const [a, b, c] = makeSeats(3);
     const seats = [{ ...a, name: "Skeptic" }, { ...b, name: " Optimist\n" }, { ...c, name: "  " }];

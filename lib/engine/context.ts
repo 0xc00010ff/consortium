@@ -1,6 +1,6 @@
 // What the models read (spec section 5). Pure functions that turn a Table
 // into a SpeakRequest for a seat in a round, an arbiter in a round, or a
-// seat's private reply.
+// private reply from a seat or an arbiter.
 //
 // Every request has one instructions string and one user message. The user
 // message holds the transcript as markdown, then the images in the order they
@@ -31,6 +31,7 @@ import type {
   Table,
   Turns,
 } from "@/lib/types";
+import { SEAT_LETTERS } from "@/lib/types";
 
 export const ROUND_MAX_OUTPUT_TOKENS = 8000;
 export const PRIVATE_MAX_OUTPUT_TOKENS = 4000;
@@ -84,8 +85,8 @@ export function buildSeatRequest(table: Table, seatId: SeatId): SpeakRequest {
 }
 
 // The request for one arbiter in the current round. It includes this round's
-// seat replies and the replies of the arbiters before it, and never a
-// private conversation.
+// seat replies and the replies of the arbiters before it, and this arbiter's
+// own private conversation with the host. It never includes anyone else's.
 export function buildArbiterRequest(table: Table, arbiterId: string): SpeakRequest {
   const round = currentRound(table);
   const arbiters = round.arbiters ?? table.arbiters;
@@ -116,12 +117,18 @@ export function buildArbiterRequest(table: Table, arbiterId: string): SpeakReque
   };
 }
 
-// The request for a seat's reply in its private conversation with the host.
-// The conversation, including the host's latest message, is in the
-// transcript after the round it followed.
-export function buildPrivateRequest(table: Table, seatId: SeatId): SpeakRequest {
+// The request for a reply in a private conversation with the host, from an
+// agent (by letter) or an arbiter (by id). The conversation, including the
+// host's latest message, is in the transcript after the round it followed.
+export function buildPrivateRequest(table: Table, participantId: string): SpeakRequest {
+  const arbiter = table.arbiters.find((a) => a.id === participantId);
+  if (arbiter) return buildArbiterPrivateRequest(table, arbiter);
+  const seatId = participantId as SeatId;
   const seat = findSeat(table.seats, seatId);
-  if (!seat) throw new Error(`Agent ${seatId} is not at this table.`);
+  if (!seat) {
+    const isLetter = (SEAT_LETTERS as readonly string[]).includes(participantId);
+    throw new Error(isLetter ? `Agent ${participantId} is not at this table.` : `The arbiter ${participantId} is not at this table.`);
+  }
   const last = table.rounds[table.rounds.length - 1];
   const interaction = last?.interaction ?? table.interaction;
   const turns = last?.turns ?? "parallel";
@@ -141,6 +148,29 @@ export function buildPrivateRequest(table: Table, seatId: SeatId): SpeakRequest 
     browsing: seat.browsing,
     maxOutputTokens: PRIVATE_MAX_OUTPUT_TOKENS,
     mockHint: { purpose: "private", interaction, round: table.rounds.length, seatId },
+  };
+}
+
+// An arbiter's private reply. It reads everything, as in a round, with its
+// own private conversation placed after the rounds it followed.
+function buildArbiterPrivateRequest(table: Table, arbiter: Arbiter): SpeakRequest {
+  const last = table.rounds[table.rounds.length - 1];
+  const interaction = last?.interaction ?? table.interaction;
+
+  const images: Attachment[] = [];
+  const transcript = renderTranscript(table, { kind: "arbiter", arbiterId: arbiter.id }, null, images);
+  const others = table.arbiters.length > 1 ? "The agents and the other arbiters do not see this." : "The agents do not see this.";
+  const now = [`The host is now talking with you privately. ${others} Reply to the host's last message.`];
+  if (images.length > 0) now.push(IMAGES_ABOVE);
+
+  return {
+    modelId: arbiter.modelId,
+    ...(arbiter.toolModel ? { toolModel: arbiter.toolModel } : {}),
+    instructions: arbiterInstructions(table, last, arbiter),
+    messages: [userMessage(transcript, images, now)],
+    browsing: arbiter.browsing,
+    maxOutputTokens: PRIVATE_MAX_OUTPUT_TOKENS,
+    mockHint: { purpose: "private", interaction, round: table.rounds.length, arbiterName: arbiter.name },
   };
 }
 
@@ -251,16 +281,18 @@ export function votesLine(reply: Reply): string | null {
   return `Host votes: ${votes > 0 ? "+" : ""}${votes}`;
 }
 
-function arbiterInstructions(table: Table, round: Round, arbiter: Arbiter): string {
-  const label = labeler(table.seats, round.seats);
-  const seats = (round.seats ?? table.seats).map((s) => label(s.id));
-  const order = speakingOrder(round.seats ?? table.seats).map(label);
-  const arbiters = round.arbiters ?? table.arbiters;
+// `round` is the round being answered, or for a private reply the last round,
+// which is absent before round 1.
+function arbiterInstructions(table: Table, round: Round | undefined, arbiter: Arbiter): string {
+  const label = labeler(table.seats, round?.seats);
+  const seats = (round?.seats ?? table.seats).map((s) => label(s.id));
+  const order = speakingOrder(round?.seats ?? table.seats).map(label);
+  const arbiters = round?.arbiters ?? table.arbiters;
   const readers = arbiters.length > 1 ? "the host, the agents and the other arbiters" : "the host and the agents";
   const intro = [
     `You are an arbiter named ${arbiter.name} at a table of AI models.`,
     seats.length > 0 ? `The agents are called ${listWords(seats)}.` : "",
-    round.turns === "roundRobin" && order.length > 1
+    round?.turns === "roundRobin" && order.length > 1
       ? `The host runs the table. In each round, the agents answer one after another, in the order ${order.join(", ")}, and then you answer.`
       : "The host runs the table. In each round, the agents answer first, and then you answer.",
     `You can read everything ${readers} have said.`,
@@ -285,13 +317,13 @@ type Viewer = { kind: "seat"; seatId: SeatId; interaction: Interaction; turns: T
 // order they are numbered.
 function renderTranscript(table: Table, viewer: Viewer, current: number | null, images: Attachment[]): string {
   const out: string[] = [];
+  // The reader's own private conversation, and no one else's.
   const privateGroups = new Map<number, PrivateMessage[]>();
-  if (viewer.kind === "seat") {
-    for (const message of table.privateThreads[viewer.seatId] ?? []) {
-      const group = privateGroups.get(message.afterRound) ?? [];
-      group.push(message);
-      privateGroups.set(message.afterRound, group);
-    }
+  const ownId = viewer.kind === "seat" ? viewer.seatId : viewer.arbiterId;
+  for (const message of table.privateThreads[ownId] ?? []) {
+    const group = privateGroups.get(message.afterRound) ?? [];
+    group.push(message);
+    privateGroups.set(message.afterRound, group);
   }
   const renderPrivate = (afterRound: number) => {
     const group = privateGroups.get(afterRound);

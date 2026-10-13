@@ -9,7 +9,7 @@
 // is running here, the work goes on, and the next save merges the stored copy
 // in, so neither tab's rounds are lost.
 
-import type { ModelsResponse, PrivateMessage, SeatId, Table, TableStore } from "@/lib/types";
+import type { ModelsResponse, PrivateMessage, Table, TableStore } from "@/lib/types";
 import { applyEdit, createTableStore, newTable, speak } from "./engine";
 import { applyPreset, builtinPresets, listPresets } from "./presets";
 import { readDefaultPreset } from "./settings";
@@ -164,11 +164,11 @@ export function mergeTables(ours: Table, stored: Table): Table {
   for (const r of ours.rounds) rounds.set(r.number, r);
 
   const privateThreads: Table["privateThreads"] = {};
-  for (const seat of stored.seats) {
+  for (const id of [...stored.seats.map((s) => s.id), ...stored.arbiters.map((a) => a.id)]) {
     const byId = new Map<string, PrivateMessage>();
-    for (const m of stored.privateThreads[seat.id] ?? []) byId.set(m.id, m);
-    for (const m of ours.privateThreads[seat.id] ?? []) byId.set(m.id, m);
-    if (byId.size) privateThreads[seat.id as SeatId] = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
+    for (const m of stored.privateThreads[id] ?? []) byId.set(m.id, m);
+    for (const m of ours.privateThreads[id] ?? []) byId.set(m.id, m);
+    if (byId.size) privateThreads[id] = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
   }
 
   return {

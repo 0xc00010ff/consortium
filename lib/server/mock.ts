@@ -11,7 +11,8 @@
 //   a seat agrees or disagrees with another seat by letter.
 // - Arbiter replies are a short numbered list of who holds which approach,
 //   who agrees with whom, and one open question.
-// - Private replies answer the host's last message.
+// - Private replies answer the host's last message. An arbiter's private
+//   reply also says where the agents stood in the last round.
 // - With browsing on, some replies start with a web search or a page read.
 
 import type { MockHint, SeatId, SpeakEvent, SpeakRequest, ToolName } from "@/lib/types";
@@ -283,14 +284,12 @@ function readContext(request: SpeakRequest): Context {
 }
 
 function inferHint(instructions: string, now: string): MockHint {
-  const purpose = instructions.startsWith("You are an arbiter")
-    ? "arbiter"
-    : /talking with you privately/.test(now)
-      ? "private"
-      : "seat";
+  const arbiter = instructions.startsWith("You are an arbiter");
+  const purpose = /talking with you privately/.test(now) ? "private" : arbiter ? "arbiter" : "seat";
   const round = Number(/Round (\d+)\./.exec(now)?.[1] ?? "1");
   const interaction = /You cannot read the other agents/.test(instructions) ? "independent" : "group";
-  return { purpose, interaction, round };
+  const arbiterName = arbiter ? (/You are an arbiter named (.+?) at a table/.exec(instructions)?.[1] ?? "Arbiter") : undefined;
+  return { purpose, interaction, round, ...(arbiterName ? { arbiterName } : {}) };
 }
 
 function seatsFrom(instructions: string, seatId: SeatId, purpose: MockHint["purpose"]): SeatId[] {
@@ -391,7 +390,7 @@ function toolNote(tools: MockTool[]): string {
 export function writeMockReply(request: SpeakRequest): MockReply {
   const ctx = readContext(request);
   if (ctx.hint.purpose === "arbiter") return arbiterReply(ctx);
-  if (ctx.hint.purpose === "private") return privateReply(ctx);
+  if (ctx.hint.purpose === "private") return ctx.hint.arbiterName && !ctx.hint.seatId ? arbiterPrivateReply(ctx) : privateReply(ctx);
   return seatReply(ctx);
 }
 
@@ -499,4 +498,22 @@ function privateReply(ctx: Context): MockReply {
     "",
   ]);
   return { text: [`${first}${toolNote(tools)}`, second, close].filter(Boolean).join("\n\n"), tools };
+}
+
+// An arbiter answers the host's last message, then says where each agent
+// stood in the last round it read.
+function arbiterPrivateReply(ctx: Context): MockReply {
+  const { text } = lastPrivateMessage(ctx.transcript);
+  const tools = toolsFor(ctx, 0.2);
+  const asked = shorten(text) || "your message";
+  const first = text.trim().endsWith("?")
+    ? `You asked "${asked}". Here is my answer as ${ctx.arbiterName}, based on what the table has said so far.`
+    : `Thank you. As ${ctx.arbiterName}, I will keep "${asked}" in mind in the next round.`;
+  const round = lastRoundNumber(ctx.transcript);
+  const agents = [...seatReplies(ctx.transcript, round).keys()].sort();
+  const standing =
+    agents.length > 0
+      ? agents.map((id) => `Agent ${id} wants to ${approachOf(ctx.topicSeed, id).short}.`).join(" ")
+      : "The agents have not answered yet, so there is nothing to track.";
+  return { text: [`${first}${toolNote(tools)}`, standing].join("\n\n"), tools };
 }

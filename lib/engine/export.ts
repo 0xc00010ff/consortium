@@ -1,9 +1,9 @@
 // Markdown export of a table: the title, a short list of who took part, each
-// round with the host message and every reply, and each private conversation
-// under the round it followed.
+// round with the host message and every reply, and each private conversation,
+// with an agent or an arbiter, under the round it followed.
 
-import type { Arbiter, Attachment, PrivateMessage, Reply, Round, Seat, SeatId, Table, ToolActivity } from "@/lib/types";
-import { MAKER_LABELS } from "@/lib/types";
+import type { Arbiter, Attachment, PrivateMessage, Reply, Round, Seat, Table, ToolActivity } from "@/lib/types";
+import { MAKER_LABELS, SEAT_LETTERS } from "@/lib/types";
 import { agentName, sitOut, votesLine } from "./context";
 
 export function tableToMarkdown(table: Table): string {
@@ -27,7 +27,9 @@ export function tableToMarkdown(table: Table): string {
 
   const threads = privateConversations(table);
   const pushPrivate = (afterRound: number) => {
-    for (const [seatId, messages] of threads.get(afterRound) ?? []) out.push(...privateBlock(table, seatId, messages, afterRound));
+    for (const [participantId, messages] of threads.get(afterRound) ?? []) {
+      out.push(...privateBlock(table, participantId, messages, afterRound));
+    }
     threads.delete(afterRound);
   };
 
@@ -80,11 +82,12 @@ function replyNotes(reply: Reply | PrivateMessage): string | null {
   return notes.length > 0 ? notes.join("\n") : null;
 }
 
-function privateBlock(table: Table, seatId: SeatId, messages: PrivateMessage[], afterRound: number): string[] {
+// A private conversation with an agent, headed "with Agent B", or with an
+// arbiter, headed "with Tracker".
+function privateBlock(table: Table, participantId: string, messages: PrivateMessage[], afterRound: number): string[] {
   const when = afterRound > 0 ? `after round ${afterRound}` : "before round 1";
-  const seat = table.seats.find((s) => s.id === seatId);
-  const seatName = seat ? seatTitle(seat) : `Agent ${seatId}`;
-  const out = [`### Private conversation with Agent ${seatId}, ${when}`];
+  const { who, speaker } = privateNames(table, participantId);
+  const out = [`### Private conversation with ${who}, ${when}`];
   for (const message of messages) {
     if (message.role === "host") {
       const lines = [`**Host:** ${message.text.trim() || "*No text.*"}`];
@@ -92,7 +95,7 @@ function privateBlock(table: Table, seatId: SeatId, messages: PrivateMessage[], 
       if (attachments) lines.push(attachments);
       out.push(lines.join("\n\n"));
     } else {
-      const lines = [`**${seatName}:** ${message.text.trim()}`.trimEnd()];
+      const lines = [`**${speaker}:** ${message.text.trim()}`.trimEnd()];
       const notes = replyNotes(message);
       if (notes) lines.push(notes);
       out.push(lines.join("\n\n"));
@@ -101,23 +104,23 @@ function privateBlock(table: Table, seatId: SeatId, messages: PrivateMessage[], 
   return out;
 }
 
-// Private messages grouped by the round they followed, then by seat in
-// speaking order.
-function privateConversations(table: Table): Map<number, Array<[SeatId, PrivateMessage[]]>> {
-  const groups = new Map<number, Array<[SeatId, PrivateMessage[]]>>();
-  const order = table.seats.map((s) => s.id as string);
+// Private messages grouped by the round they followed, then by participant:
+// the agents in speaking order, then the arbiters in arbiter order.
+function privateConversations(table: Table): Map<number, Array<[string, PrivateMessage[]]>> {
+  const groups = new Map<number, Array<[string, PrivateMessage[]]>>();
+  const order = [...table.seats.map((s) => s.id as string), ...table.arbiters.map((a) => a.id)];
   const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
-  const seatIds = (Object.keys(table.privateThreads) as SeatId[]).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
-  for (const seatId of seatIds) {
+  const ids = Object.keys(table.privateThreads).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  for (const participantId of ids) {
     const byRound = new Map<number, PrivateMessage[]>();
-    for (const message of table.privateThreads[seatId] ?? []) {
+    for (const message of table.privateThreads[participantId] ?? []) {
       const list = byRound.get(message.afterRound) ?? [];
       list.push(message);
       byRound.set(message.afterRound, list);
     }
     for (const [afterRound, messages] of byRound) {
       const group = groups.get(afterRound) ?? [];
-      group.push([seatId, messages]);
+      group.push([participantId, messages]);
       groups.set(afterRound, group);
     }
   }
@@ -139,7 +142,26 @@ function seatTitle(seat: Seat): string {
 
 function arbiterHeading(table: Table, round: Round, arbiterId: string): string {
   const arbiter = round.arbiters?.find((a) => a.id === arbiterId) ?? table.arbiters.find((a) => a.id === arbiterId);
-  return arbiter ? `### ${arbiter.name} · Arbiter · ${arbiter.modelName}` : "### Arbiter";
+  return arbiter ? `### ${arbiterTitle(arbiter)}` : "### Arbiter";
+}
+
+// "Tracker · Arbiter · Claude Haiku 5.5"
+function arbiterTitle(arbiter: Arbiter): string {
+  return `${arbiter.name} · Arbiter · ${arbiter.modelName}`;
+}
+
+// Who a private conversation is with, for its heading, and the name on the
+// participant's messages. A participant no longer at the table is looked up
+// in the rounds.
+function privateNames(table: Table, participantId: string): { who: string; speaker: string } {
+  if ((SEAT_LETTERS as readonly string[]).includes(participantId)) {
+    const seat = table.seats.find((s) => s.id === participantId);
+    return { who: `Agent ${participantId}`, speaker: seat ? seatTitle(seat) : `Agent ${participantId}` };
+  }
+  const arbiter =
+    table.arbiters.find((a) => a.id === participantId) ??
+    [...table.rounds].reverse().flatMap((r) => r.arbiters ?? []).find((a) => a.id === participantId);
+  return arbiter ? { who: arbiter.name, speaker: arbiterTitle(arbiter) } : { who: "an arbiter", speaker: "Arbiter" };
 }
 
 function seatLine(seat: Seat): string {

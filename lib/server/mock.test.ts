@@ -102,6 +102,25 @@ describe("mock private replies", () => {
     const text = writeMockReply(buildPrivateRequest(table, "B")).text;
     expect(text).toContain('You asked "What would you cut first".');
   });
+
+  it("from an arbiter answer as the arbiter and say where the agents stand", () => {
+    let table = playRound(makeTable({ arbiters: [makeArbiter(1)] }), TOPIC);
+    table = {
+      ...table,
+      privateThreads: {
+        "arbiter-1": [
+          { id: "p1", role: "host", text: "Who is closest to a plan?", status: "done", tools: [], afterRound: 1, createdAt: 0 },
+          { id: "p2", role: "seat", text: "", status: "queued", tools: [], afterRound: 1, createdAt: 0 },
+        ],
+      },
+    };
+    const request = buildPrivateRequest(table, "arbiter-1");
+    for (const hinted of [request, { ...request, mockHint: undefined }]) {
+      const text = writeMockReply(hinted).text;
+      expect(text).toContain('You asked "Who is closest to a plan". Here is my answer as Tracker');
+      expect(text).toMatch(/Agent A wants to .+\. Agent B wants to/);
+    }
+  });
 });
 
 describe("mock tools", () => {

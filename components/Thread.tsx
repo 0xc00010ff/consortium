@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import type { Reply, Round, SeatId, Table } from "@/lib/types";
+import type { Reply, Round, Table } from "@/lib/types";
 import { copyToClipboard } from "@/lib/ui/download";
 import { plural, replyStats } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
@@ -28,7 +28,7 @@ const CAP_REM = 18;
 
 export function Thread({
   table,
-  activeSeat,
+  openPrivateId,
   highlightReplyId,
   onOpenPrivate,
   onVote,
@@ -36,9 +36,9 @@ export function Thread({
   stick,
 }: {
   table: Table;
-  activeSeat: SeatId | null;
+  openPrivateId: string | null; // the agent or arbiter whose private conversation is open
   highlightReplyId: string | null;
-  onOpenPrivate: (seatId: SeatId) => void;
+  onOpenPrivate: (participantId: string) => void;
   onVote: (replyId: string, delta: number) => void;
   onRewind: (roundNumber: number) => void;
   stick: StickToBottom;
@@ -79,7 +79,7 @@ export function Thread({
                   table={table}
                   latest={round.number === last}
                   collapsed={collapsed}
-                  activeSeat={activeSeat}
+                  openPrivateId={openPrivateId}
                   highlightReplyId={highlightReplyId}
                   expanded={expanded}
                   onToggleExpanded={toggleExpanded}
@@ -111,7 +111,7 @@ function RoundView({
   table,
   latest,
   collapsed,
-  activeSeat,
+  openPrivateId,
   highlightReplyId,
   expanded,
   onToggleExpanded,
@@ -125,16 +125,32 @@ function RoundView({
   table: Table;
   latest: boolean;
   collapsed: boolean;
-  activeSeat: SeatId | null;
+  openPrivateId: string | null;
   highlightReplyId: string | null;
   expanded: Record<string, boolean>;
   onToggleExpanded: (id: string, next: boolean) => void;
   onHold: () => void;
   onToggle?: () => void;
-  onOpenPrivate: (seatId: SeatId) => void;
+  onOpenPrivate: (participantId: string) => void;
   onVote: (replyId: string, delta: number) => void;
   onRewind?: () => void;
 }) {
+  // Whether the host can open a private conversation from this round's reply:
+  // only from the latest finished round, with someone still at the table.
+  const canOpen = (id: string, atTable: boolean) =>
+    latest && round.status !== "running" && atTable && id !== openPrivateId;
+  const privateChip = (id: string, atTable: boolean) => {
+    const count = atTable ? privateAfter(table, id, round.number).length : 0;
+    if (!count) return null;
+    return (
+      <div className="acts">
+        <button type="button" className="chip" onClick={() => onOpenPrivate(id)}>
+          <Icon name="lock" size={14} />
+          Private conversation · {plural(count, "message")}
+        </button>
+      </div>
+    );
+  };
   const status = round.status === "running" ? "Running" : round.status === "stopped" ? "Stopped" : null;
   const interaction = modeLabel(round);
   const count = plural(roundReplyCount(round), "reply", "replies");
@@ -183,8 +199,6 @@ function RoundView({
           {round.replies.map((reply) => {
             const seatId = isSeatId(reply.participantId) ? reply.participantId : null;
             const atTable = seatId !== null && table.seats.some((s) => s.id === seatId);
-            const privateCount = seatId ? privateAfter(table, seatId, round.number).length : 0;
-            const canReply = latest && round.status !== "running" && atTable && seatId !== activeSeat;
             // The agent as it was in this round, so earlier rounds keep their names and colors.
             const seat = seatIn(round, table, reply.participantId);
             const agent = `Agent ${reply.participantId}`;
@@ -202,22 +216,15 @@ function RoundView({
                 onToggleExpanded={onToggleExpanded}
                 onHold={onHold}
                 onVote={onVote}
-                onReplyPrivately={seatId && canReply ? () => onOpenPrivate(seatId) : undefined}
-                privateChip={
-                  seatId && privateCount > 0 ? (
-                    <div className="acts">
-                      <button type="button" className="chip" onClick={() => onOpenPrivate(seatId)}>
-                        <Icon name="lock" size={14} />
-                        Private conversation · {plural(privateCount, "message")}
-                      </button>
-                    </div>
-                  ) : null
-                }
+                onReplyPrivately={seatId && canOpen(seatId, atTable) ? () => onOpenPrivate(seatId) : undefined}
+                privateChip={seatId ? privateChip(seatId, atTable) : null}
               />
             );
           })}
           {round.arbiterReplies.map((reply, i) => {
-            const arbiter = arbiterIn(round, table, reply.participantId);
+            const id = reply.participantId;
+            const arbiter = arbiterIn(round, table, id);
+            const atTable = table.arbiters.some((a) => a.id === id);
             return (
               <ReplyView
                 key={reply.id}
@@ -227,10 +234,13 @@ function RoundView({
                 name={arbiter?.name ?? "Arbiter"}
                 meta={arbiter ? `Arbiter · ${arbiter.modelName}` : "Arbiter"}
                 avatar={<ArbiterAvatar />}
+                highlighted={reply.id === highlightReplyId}
                 expanded={expanded[reply.id]}
                 onToggleExpanded={onToggleExpanded}
                 onHold={onHold}
                 onVote={onVote}
+                onReplyPrivately={canOpen(id, atTable) ? () => onOpenPrivate(id) : undefined}
+                privateChip={privateChip(id, atTable)}
               />
             );
           })}

@@ -11,7 +11,6 @@ import type {
   Reply,
   Round,
   Seat,
-  SeatId,
   SpeakFn,
   SpeakRequest,
   SpeakResult,
@@ -40,7 +39,7 @@ type Message = { text: string; attachments: Attachment[] };
 // Where a streaming reply lives in the table.
 type Target =
   | { kind: "seat" | "arbiter"; round: number; id: string }
-  | { kind: "private"; seatId: SeatId; id: string };
+  | { kind: "private"; participantId: string; id: string };
 
 // The fields the store changes on a reply or a private message.
 type ReplyPatch = Partial<Pick<Reply, "text" | "status" | "tools" | "usage" | "durationMs" | "error" | "startedAt" | "finishReason">>;
@@ -93,13 +92,18 @@ class Store implements TableStore {
     return Promise.race([this.runRound(job, message), job.stopped]);
   };
 
-  sendPrivate = (seatId: SeatId, message: Message): Promise<void> => {
+  // Talks privately with an agent (by letter) or an arbiter (by id).
+  sendPrivate = (participantId: string, message: Message): Promise<void> => {
     if (this.job) return Promise.reject(new Error("The table is busy. Wait for it to finish, or stop it."));
-    if (!this.table.seats.some((s) => s.id === seatId)) {
-      return Promise.reject(new Error(`Agent ${seatId} is not at this table.`));
+    const atTable = this.table.seats.some((s) => s.id === participantId) || this.table.arbiters.some((a) => a.id === participantId);
+    if (!atTable) {
+      const isLetter = (SEAT_LETTERS as readonly string[]).includes(participantId);
+      return Promise.reject(
+        new Error(isLetter ? `Agent ${participantId} is not at this table.` : `The arbiter ${participantId} is not at this table.`),
+      );
     }
     const job = this.startJob();
-    return Promise.race([this.runPrivate(job, seatId, message), job.stopped]);
+    return Promise.race([this.runPrivate(job, participantId, message), job.stopped]);
   };
 
   stop = (): void => {
@@ -201,11 +205,11 @@ class Store implements TableStore {
 
   // ---------- Private conversations ----------
 
-  private async runPrivate(job: Job, seatId: SeatId, message: Message): Promise<void> {
+  private async runPrivate(job: Job, participantId: string, message: Message): Promise<void> {
     const now = Date.now();
     const afterRound = this.table.rounds.length;
     const host: PrivateMessage = {
-      id: makeId(`p-${seatId}`),
+      id: makeId(`p-${participantId}`),
       role: "host",
       text: message.text,
       ...(message.attachments.length > 0 ? { attachments: message.attachments } : {}),
@@ -215,7 +219,7 @@ class Store implements TableStore {
       createdAt: now,
     };
     const reply: PrivateMessage = {
-      id: makeId(`p-${seatId}`),
+      id: makeId(`p-${participantId}`),
       role: "seat",
       text: "",
       status: "queued",
@@ -225,12 +229,12 @@ class Store implements TableStore {
     };
     this.commit((t) => ({
       ...t,
-      privateThreads: { ...t.privateThreads, [seatId]: [...(t.privateThreads[seatId] ?? []), host, reply] },
+      privateThreads: { ...t.privateThreads, [participantId]: [...(t.privateThreads[participantId] ?? []), host, reply] },
     }));
 
     try {
-      const request = buildPrivateRequest(this.table, seatId);
-      await this.runReply(job, { kind: "private", seatId, id: reply.id }, request);
+      const request = buildPrivateRequest(this.table, participantId);
+      await this.runReply(job, { kind: "private", participantId, id: reply.id }, request);
       if (job.cancelled) return;
       this.finishJob(job);
     } catch (err) {
@@ -396,7 +400,7 @@ function updateTarget(
   };
 
   if (target.kind === "private") {
-    const thread = table.privateThreads[target.seatId];
+    const thread = table.privateThreads[target.participantId];
     if (!thread) return table;
     let changed = false;
     const nextThread = thread.map((m) => {
@@ -405,7 +409,7 @@ function updateTarget(
       if (next !== m) changed = true;
       return next;
     });
-    return changed ? { ...table, privateThreads: { ...table.privateThreads, [target.seatId]: nextThread } } : table;
+    return changed ? { ...table, privateThreads: { ...table.privateThreads, [target.participantId]: nextThread } } : table;
   }
 
   let changed = false;
@@ -444,14 +448,14 @@ function isOn(seat: Seat): boolean {
 }
 
 // Deletes round `roundNumber` and every round after it, and the private
-// messages sent after any of those rounds. Private messages sent before round
-// `roundNumber` began stay, so the agent still has them when the host sends
-// that round again.
+// messages sent after any of those rounds, with agents and with arbiters.
+// Private messages sent before round `roundNumber` began stay, so the agent or
+// arbiter still has them when the host sends that round again.
 export function rewindTable(table: Table, roundNumber: number): Table {
   const privateThreads: Table["privateThreads"] = {};
-  for (const [seatId, thread] of Object.entries(table.privateThreads) as Array<[SeatId, PrivateMessage[] | undefined]>) {
+  for (const [participantId, thread] of Object.entries(table.privateThreads)) {
     const kept = (thread ?? []).filter((m) => m.afterRound < roundNumber);
-    if (kept.length > 0) privateThreads[seatId] = kept;
+    if (kept.length > 0) privateThreads[participantId] = kept;
   }
   return { ...table, rounds: table.rounds.filter((r) => r.number < roundNumber), privateThreads };
 }
@@ -462,9 +466,10 @@ function isDefaultTitle(title: string): boolean {
 
 // Applies an edit made between rounds. Seats keep at most eight, at least
 // one, and unique letters; a new seat without a free letter of its own gets
-// the next free letter. A removed seat's private conversation is deleted.
+// the next free letter. A removed agent's or arbiter's private conversation
+// is deleted.
 export function applyEdit(table: Table, edit: TableEdit): Table {
-  let next: Table = { ...table };
+  const next: Table = { ...table };
   if (edit.title !== undefined) next.title = edit.title.trim() || UNTITLED;
   if (edit.interaction === "group" || edit.interaction === "independent") next.interaction = edit.interaction;
   if (edit.turns === "parallel" || edit.turns === "roundRobin") next.turns = edit.turns;
@@ -484,12 +489,7 @@ export function applyEdit(table: Table, edit: TableEdit): Table {
       const id = nextSeatId({ seats: [], rounds: table.rounds }, [...reserved, ...seats.map((s) => s.id)]);
       if (id) seats.push({ ...seat, id });
     });
-    const kept = new Set(seats.map((s) => s.id));
-    const privateThreads: Table["privateThreads"] = {};
-    for (const [seatId, thread] of Object.entries(table.privateThreads) as Array<[SeatId, PrivateMessage[] | undefined]>) {
-      if (thread && kept.has(seatId)) privateThreads[seatId] = thread;
-    }
-    next = { ...next, seats, privateThreads };
+    next.seats = seats;
   }
 
   if (edit.arbiters) {
@@ -499,6 +499,15 @@ export function applyEdit(table: Table, edit: TableEdit): Table {
       arbiters.push({ ...arbiter, id });
     }
     next.arbiters = arbiters;
+  }
+
+  if (edit.seats || edit.arbiters) {
+    const kept = new Set<string>([...next.seats.map((s) => s.id), ...next.arbiters.map((a) => a.id)]);
+    const privateThreads: Table["privateThreads"] = {};
+    for (const [participantId, thread] of Object.entries(table.privateThreads)) {
+      if (thread && kept.has(participantId)) privateThreads[participantId] = thread;
+    }
+    next.privateThreads = privateThreads;
   }
   return next;
 }

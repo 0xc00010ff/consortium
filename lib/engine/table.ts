@@ -193,13 +193,14 @@ export function markInterrupted(table: Table, stoppedAt?: number): Table {
     };
   });
   const privateThreads: Table["privateThreads"] = {};
-  for (const [seatId, thread] of Object.entries(table.privateThreads) as Array<[SeatId, PrivateMessage[] | undefined]>) {
+  // Keyed by an agent's letter or an arbiter's id.
+  for (const [participantId, thread] of Object.entries(table.privateThreads)) {
     if (!thread) continue;
     if (thread.some((m) => m.status === "queued" || m.status === "streaming")) {
       changed = true;
-      privateThreads[seatId] = thread.map((m) => stopReply(m, stoppedAt));
+      privateThreads[participantId] = thread.map((m) => stopReply(m, stoppedAt));
     } else {
-      privateThreads[seatId] = thread;
+      privateThreads[participantId] = thread;
     }
   }
   return changed ? { ...table, rounds, privateThreads } : table;

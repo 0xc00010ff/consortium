@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import type { Attachment, ModelsResponse, SeatId, Table, TableStore } from "@/lib/types";
+import type { Attachment, ModelsResponse, Table, TableStore } from "@/lib/types";
 import { downloadText, exportFilename } from "@/lib/ui/download";
 import { confirm } from "@/lib/ui/confirm";
 import { tableToMarkdown } from "@/lib/ui/engine";
 import { useStickToBottom } from "@/lib/ui/useStickToBottom";
 import { useTable } from "@/lib/ui/useStore";
-import { isBusy, latestReply, privateBusySeat, subtitle, UNTITLED } from "@/lib/ui/view";
+import { isBusy, latestReply, participantIn, privateBusyParticipant, subtitle, UNTITLED } from "@/lib/ui/view";
 import { Composer } from "./Composer";
 import { Icon } from "./Icon";
 import { ParticipantsPanel } from "./ParticipantsPanel";
@@ -38,16 +38,17 @@ export function TableScreen({
 }) {
   const table = useTable(store);
   const busy = isBusy(table);
-  const privateSeat = privateBusySeat(table);
-  const [openSeat, setOpenSeat] = useState<SeatId | null>(null);
+  const privateBusy = privateBusyParticipant(table);
+  // The agent or arbiter whose private conversation is open.
+  const [openId, setOpenId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   // A message handed back to the composer by a rewind. The number changes on
   // every rewind, so the composer starts again with that message.
   const [draft, setDraft] = useState<{ n: number; text: string; attachments: Attachment[] } | null>(null);
   const stick = useStickToBottom();
 
-  // A seat removed from the table takes its private conversation with it.
-  const seat = openSeat ? table.seats.find((s) => s.id === openSeat) : undefined;
+  // An agent or arbiter removed from the table takes its private conversation with it.
+  const open = openId ? participantIn(undefined, table, openId) : undefined;
   const first = table.rounds.length === 0;
   const allOff = table.seats.every((s) => s.active === false);
 
@@ -69,11 +70,11 @@ export function TableScreen({
   }
 
   function sendPrivate(text: string): boolean {
-    if (!seat) return false;
+    if (!open) return false;
     setRunError(null);
-    const before = store.getTable().privateThreads[seat.id]?.length ?? 0;
-    store.sendPrivate(seat.id, { text, attachments: [] }).catch(report);
-    return (store.getTable().privateThreads[seat.id]?.length ?? 0) > before;
+    const before = store.getTable().privateThreads[open.id]?.length ?? 0;
+    store.sendPrivate(open.id, { text, attachments: [] }).catch(report);
+    return (store.getTable().privateThreads[open.id]?.length ?? 0) > before;
   }
 
   // Deletes this round and the ones after it, after asking, and puts the
@@ -101,7 +102,7 @@ export function TableScreen({
     downloadText(exportFilename(table.title, table.createdAt), tableToMarkdown(table));
   }
 
-  const participantsShown = !seat && participantsOpen;
+  const participantsShown = !open && participantsOpen;
 
   return (
     <>
@@ -131,8 +132,8 @@ export function TableScreen({
               label={participantsShown ? "Hide participants" : "Show participants"}
               pressed={participantsShown}
               onClick={() => {
-                if (seat) {
-                  setOpenSeat(null);
+                if (open) {
+                  setOpenId(null);
                   setParticipantsOpen(true);
                 } else {
                   setParticipantsOpen(!participantsOpen);
@@ -145,9 +146,9 @@ export function TableScreen({
         {runError ? <Banner>{runError}</Banner> : null}
         <Thread
           table={table}
-          activeSeat={seat?.id ?? null}
-          highlightReplyId={seat ? (latestReply(table, seat.id)?.reply.id ?? null) : null}
-          onOpenPrivate={setOpenSeat}
+          openPrivateId={open?.id ?? null}
+          highlightReplyId={open ? (latestReply(table, open.id)?.reply.id ?? null) : null}
+          onOpenPrivate={setOpenId}
           onVote={(replyId, delta) => store.vote(replyId, delta)}
           onRewind={rewind}
           stick={stick}
@@ -163,16 +164,16 @@ export function TableScreen({
           onStop={() => store.stop()}
         />
       </main>
-      {seat ? (
+      {open ? (
         <PrivatePanel
-          key={seat.id}
+          key={open.id}
           table={table}
-          seat={seat}
+          participant={open}
           busy={busy}
-          replying={privateSeat === seat.id}
+          replying={privateBusy === open.id}
           onSend={sendPrivate}
           onStop={() => store.stop()}
-          onClose={() => setOpenSeat(null)}
+          onClose={() => setOpenId(null)}
         />
       ) : participantsOpen ? (
         <ParticipantsPanel

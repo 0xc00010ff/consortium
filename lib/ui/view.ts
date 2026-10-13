@@ -28,10 +28,10 @@ function messageBusy(m: PrivateMessage): boolean {
   return m.status === "queued" || m.status === "streaming";
 }
 
-// The seat whose private reply is in progress, if any.
-export function privateBusySeat(table: Table): SeatId | null {
+// The agent or arbiter whose private reply is in progress, if any.
+export function privateBusyParticipant(table: Table): string | null {
   for (const [id, thread] of Object.entries(table.privateThreads)) {
-    if (thread?.some(messageBusy)) return id as SeatId;
+    if (thread?.some(messageBusy)) return id;
   }
   return null;
 }
@@ -41,7 +41,7 @@ export function roundBusy(table: Table): boolean {
 }
 
 export function isBusy(table: Table): boolean {
-  return roundBusy(table) || privateBusySeat(table) !== null;
+  return roundBusy(table) || privateBusyParticipant(table) !== null;
 }
 
 // ---------- participants ----------
@@ -53,6 +53,39 @@ export function seatIn(round: Round | undefined, table: Table, id: string): Seat
 
 export function arbiterIn(round: Round | undefined, table: Table, id: string): Arbiter | undefined {
   return round?.arbiters?.find((a) => a.id === id) ?? table.arbiters.find((a) => a.id === id);
+}
+
+// An agent or an arbiter, with what the interface shows for it.
+export interface Participant {
+  id: string; // a SeatId or an arbiter id
+  kind: "agent" | "arbiter";
+  name: string; // the heading: an agent's name or model name, or the arbiter's name
+  label: string; // how copy refers to it: "Agent B" or "Tracker"
+  modelName: string;
+  hostName?: string; // the host's name for an agent, when it has one
+  color?: SeatColor; // agents only
+}
+
+// The agent or arbiter as it was in a round, falling back to the table's
+// current participants. Without a round, only the current table counts.
+export function participantIn(round: Round | undefined, table: Table, id: string): Participant | undefined {
+  if (isSeatId(id)) {
+    const seat = seatIn(round, table, id);
+    if (!seat) return undefined;
+    return {
+      id,
+      kind: "agent",
+      name: seatDisplayName(seat),
+      label: `Agent ${id}`,
+      modelName: seat.modelName,
+      hostName: seatName(seat),
+      color: seatColor(seat),
+    };
+  }
+  const arbiter = arbiterIn(round, table, id);
+  if (!arbiter) return undefined;
+  const name = arbiter.name.trim() || "Arbiter";
+  return { id, kind: "arbiter", name, label: name, modelName: arbiter.modelName };
 }
 
 // The agent's color: the host's choice, or the letter's own color.
@@ -193,16 +226,16 @@ export function roundReplyCount(round: Round): number {
 
 // ---------- private conversations ----------
 
-// The messages of a seat's private conversation that followed a given round.
-export function privateAfter(table: Table, seatId: SeatId, round: number): PrivateMessage[] {
-  return (table.privateThreads[seatId] ?? []).filter((m) => m.afterRound === round);
+// The messages of an agent's or arbiter's private conversation that followed a given round.
+export function privateAfter(table: Table, participantId: string, round: number): PrivateMessage[] {
+  return (table.privateThreads[participantId] ?? []).filter((m) => m.afterRound === round);
 }
 
-// The seat's most recent reply in a round, and the round it came from.
-export function latestReply(table: Table, seatId: SeatId): { round: Round; reply: Reply } | null {
+// The agent's or arbiter's most recent reply in a round, and the round it came from.
+export function latestReply(table: Table, participantId: string): { round: Round; reply: Reply } | null {
   for (let i = table.rounds.length - 1; i >= 0; i--) {
     const round = table.rounds[i];
-    const reply = round.replies.find((r) => r.participantId === seatId);
+    const reply = [...round.replies, ...round.arbiterReplies].find((r) => r.participantId === participantId);
     if (reply) return { round, reply };
   }
   return null;
