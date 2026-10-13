@@ -504,3 +504,105 @@ describe("tool models", () => {
     expect(buildPrivateRequest({ ...base, seats }, "A").toolModel).toBe("gpt-6-astra");
   });
 });
+
+describe("agent names", () => {
+  // Seats A, B, C... with the host's names for some of them.
+  const named = (names: Record<string, string>, count = 3) => makeSeats(count).map((s) => (names[s.id] !== undefined ? { ...s, name: names[s.id] } : s));
+  const opening = "Each agent is an AI model.";
+
+  it("follow the letter in the opening sentence, and the agent hears its own name once", () => {
+    const table = running(makeTable({ seats: named({ A: "Skeptic", B: "Optimist" }) }), 1);
+    expect(buildSeatRequest(table, "B").instructions).toContain(
+      `You are Agent B (Optimist) at a table with agents A (Skeptic) and C. The host calls you Optimist. ${opening}`,
+    );
+    const unnamed = buildSeatRequest(table, "C").instructions;
+    expect(unnamed).toContain(`You are Agent C at a table with agents A (Skeptic) and B (Optimist). ${opening}`);
+    expect(unnamed).not.toContain("The host calls you");
+
+    const pair = running(makeTable({ seats: named({ B: "Optimist" }, 2) }), 0);
+    expect(buildSeatRequest(pair, "A").instructions).toContain("You are Agent A at a table with agent B (Optimist).");
+    const alone = running(makeTable({ seats: named({ A: "Skeptic" }, 1) }), 0);
+    expect(buildSeatRequest(alone, "A").instructions).toContain(
+      "You are Agent A (Skeptic), the only agent at the table. The host calls you Skeptic.",
+    );
+  });
+
+  it("appear in the transcript headings for the agent itself and for the others", () => {
+    const table = running(makeTable({ seats: named({ A: "Skeptic", B: "Optimist" }) }), 1);
+    const forB = requestText(buildSeatRequest(table, "B"));
+    expect(forB).toContain("### Agent A (Skeptic)\n\nAgent A reply in round 1.");
+    expect(forB).toContain("### Agent B (Optimist, you)\n\nAgent B reply in round 1.");
+    expect(forB).toContain("### Agent C\n\nAgent C reply in round 1.");
+    expect(requestText(buildSeatRequest(table, "C"))).toContain("### Agent C (you)\n\nAgent C reply in round 1.");
+    expect(requestText(buildArbiterRequest({ ...table, arbiters: [makeArbiter(1)] }, "arbiter-1"))).toContain(
+      "### Agent B (Optimist)\n\nAgent B reply in round 1.",
+    );
+  });
+
+  it("appear in the round robin order, the position sentence and the Now section", () => {
+    const [a, b, c] = named({ C: "Judge" });
+    const base = makeTable({ seats: [c, a, b], turns: "roundRobin" });
+    const table = running(base, 1, "Pick one plan.");
+    const current = table.rounds[1];
+    current.turns = "roundRobin";
+    current.replies[0] = doneReply("C", "Agent C now.", 2);
+
+    const request = buildSeatRequest(table, "A");
+    expect(request.instructions).toContain("in the order C (Judge), A, B. You answer after Agent C (Judge).");
+    expect(requestText(request)).toContain("## Round 2\n\n### Host\n\nPick one plan.\n\n### Agent C (Judge)\n\nAgent C now.");
+    expect(request.messages[0].afterAttachments).toBe(
+      "# Now\n\nRound 2. It is your turn. Agent C (Judge) has already replied this round. Reply to the host's message, and respond to Agent C (Judge) where it helps.",
+    );
+  });
+
+  it("appear in the sit-out lines", () => {
+    const seats = named({ B: "Optimist" }).map((s) => (s.id === "B" ? { ...s, active: false } : s));
+    const table = running(makeTable({ seats, arbiters: [makeArbiter(1)] }), 1);
+    table.rounds[1].replies = table.rounds[1].replies.filter((r) => r.participantId !== "B");
+    expect(buildSeatRequest(table, "A").messages[0].afterAttachments).toBe(
+      "# Now\n\nRound 2. Agent B (Optimist) sits out this round. The host wrote:\n\nNext note.",
+    );
+    expect(requestText(buildArbiterRequest(table, "arbiter-1"))).toContain("*Agent B (Optimist) sat out this round.*");
+  });
+
+  it("appear in the arbiter's list of agents", () => {
+    const table = running(makeTable({ seats: named({ A: "Skeptic", B: "Optimist" }), arbiters: [makeArbiter(1)] }), 1);
+    expect(buildArbiterRequest(table, "arbiter-1").instructions).toContain("The agents are called A (Skeptic), B (Optimist) and C.");
+  });
+
+  it("set after a round do not change that round, and reach the next instructions", () => {
+    const base = makeTable({ seats: makeSeats(3) });
+    const table = running(base, 1);
+    const seats = named({ A: "Skeptic" });
+    const renamed: Table = { ...table, seats, rounds: [table.rounds[0], { ...table.rounds[1], seats }] };
+
+    const request = buildSeatRequest(renamed, "B");
+    expect(requestText(request)).toContain("### Agent A\n\nAgent A reply in round 1.");
+    expect(requestText(request)).not.toContain("Skeptic");
+    expect(request.instructions).toContain("with agents A (Skeptic) and C.");
+
+    // A private reply after round 1 uses the table's names, though round 1 had none.
+    const finished: Table = { ...base, seats, rounds: [table.rounds[0]], privateThreads: { B: [privateMessage("host", "Why?", 1)] } };
+    const privately = buildPrivateRequest(finished, "B");
+    expect(privately.instructions).toContain("with agents A (Skeptic) and C.");
+    expect(requestText(privately)).toContain("### Agent A\n\nAgent A reply in round 1.");
+  });
+
+  it("are ignored when blank", () => {
+    const blank = running(makeTable({ seats: named({ A: "   ", B: "" }), arbiters: [makeArbiter(1)] }), 1);
+    const plain = running(makeTable({ seats: makeSeats(3), arbiters: [makeArbiter(1)] }), 1);
+    for (const id of ["A", "B"] as const) {
+      expect(everything(buildSeatRequest(blank, id))).toBe(everything(buildSeatRequest(plain, id)));
+    }
+    expect(everything(buildArbiterRequest(blank, "arbiter-1"))).toBe(everything(buildArbiterRequest(plain, "arbiter-1")));
+  });
+
+  it("are trimmed and kept on one line", () => {
+    const table = running(makeTable({ seats: named({ A: "  Devil's\n\n## advocate \n" }) }), 1);
+    const forA = buildSeatRequest(table, "A");
+    expect(forA.instructions).toContain("You are Agent A (Devil's ## advocate) at a table with agents B and C. The host calls you Devil's ## advocate.");
+    expect(requestText(forA)).toContain("### Agent A (Devil's ## advocate, you)\n\nAgent A reply in round 1.");
+    expect(requestText(buildSeatRequest(table, "B"))).toContain("### Agent A (Devil's ## advocate)\n\nAgent A reply in round 1.");
+    expect(everything(forA)).not.toMatch(/^## advocate/m);
+  });
+});

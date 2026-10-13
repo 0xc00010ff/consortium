@@ -186,4 +186,33 @@ describe("tableToMarkdown", () => {
     expect(markdown).toContain("### Agent C · Gemini 3.1 Pro\n\nC in 1.\n\n### Agent A · Claude Sonnet 5.5");
     expect(markdown.indexOf("Private conversation with Agent C")).toBeLessThan(markdown.indexOf("Private conversation with Agent A"));
   });
+  it("puts the host's name for an agent between the letter and the model", () => {
+    const [a, b, c] = makeSeats(3);
+    const seats = [{ ...a, name: "Skeptic" }, { ...b, name: " Optimist\n" }, { ...c, name: "  " }];
+    const table = makeTable({
+      seats,
+      rounds: [
+        {
+          number: 1,
+          interaction: "group",
+          host: { text: "Hi", attachments: [], createdAt: 0 },
+          replies: seats.map((s) => doneReply(s.id, `${s.id} says hi.`, 1)),
+          arbiterReplies: [],
+          status: "done",
+          seats,
+        },
+      ],
+      privateThreads: {
+        B: [{ id: "p1", role: "seat", text: "Two months free.", status: "done", tools: [], afterRound: 1, createdAt: 0 }],
+      },
+    });
+    const markdown = tableToMarkdown(table);
+    expect(markdown).toContain(
+      "- Agents: Agent A, Skeptic, Claude Sonnet 5.5 (Anthropic); Agent B, Optimist, GPT-6.1 Sol (OpenAI); Agent C, Gemini 3.1 Pro (Google)",
+    );
+    expect(markdown).toContain("### Agent A · Skeptic · Claude Sonnet 5.5\n\nA says hi.");
+    expect(markdown).toContain("### Agent B · Optimist · GPT-6.1 Sol\n\nB says hi.");
+    expect(markdown).toContain("### Agent C · Gemini 3.1 Pro\n\nC says hi.");
+    expect(markdown).toContain("**Agent B · Optimist · GPT-6.1 Sol:** Two months free.");
+  });
 });

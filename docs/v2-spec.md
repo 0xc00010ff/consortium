@@ -94,6 +94,14 @@ After that, as separate paragraphs, the host's instructions: "The host gave thes
 
 The first sentence names every agent at the table, including any that are off.
 
+### Agent names
+
+The models know each agent by its letter, and the host can add a name. A named agent's name follows its letter in parentheses wherever a prompt mentions it: in sentences ("Agent A (Skeptic)"), in lists ("agents A (Skeptic), B (Optimist) and C"), and in transcript headings ("### Agent A (Skeptic)", or "### Agent A (Skeptic, you)" for the reader's own replies). An agent without a name keeps the plain form, such as "Agent C" and "### Agent C (you)". A named agent is also told its name once, right after the opening sentence:
+
+"You are Agent B (Optimist) at a table with agents A (Skeptic) and C. The host calls you Optimist."
+
+Names are trimmed, line breaks become spaces, and a blank name counts as no name. The transcript takes each name from the round's own record of the agents, so naming an agent later does not change earlier rounds. The instructions take names from the table as it is now. The interface's colors never reach the models. The export puts the name between the letter and the model: "### Agent A · Skeptic · Claude Sonnet 5.5" as a heading, and "Agent A, Skeptic, Claude Sonnet 5.5 (Anthropic)" in the list of agents.
+
 ### Arbiter instructions
 
 "You are an arbiter named Tracker at a table of AI models. The host runs the table. In each round, the agents answer first, and then you answer. (In a round robin round: "In each round, the agents answer one after another, in the order C, A, B, and then you answer.") You can read everything the host, the agents and the other arbiters have said. Follow these instructions from the host:" followed by the arbiter's instructions, then the host's instructions to every agent, then the reply format sentence. The votes sentence follows the same rule as for agents. An arbiter never reads one agent's own instructions.
@@ -120,7 +128,7 @@ Rendered as markdown, round by round:
 ...
 ```
 
-In an Independent table, leave out the other agents and the arbiters. In both cases, leave out replies that are not done. In a parallel round, leave out the current round entirely; its host message goes in the "Now" section. In a round robin round, render the current round like the earlier ones: the host's message with its images, then, in a Group table, the replies finished before this agent's turn. A reply with votes has a line such as `*Host votes: +2*` under it. A round in which some agents were off has a line such as `*Agents B and D sat out this round.*` under the host's message, so the models do not think those agents failed. In a round robin round, the line under the current round's host message is in the present tense: `*Agent B sits out this round.*` Agents are always called by letter. The host sees model names, the models do not. The private conversation block appears only in that agent's transcript, placed after the round it followed.
+In an Independent table, leave out the other agents and the arbiters. In both cases, leave out replies that are not done. In a parallel round, leave out the current round entirely; its host message goes in the "Now" section. In a round robin round, render the current round like the earlier ones: the host's message with its images, then, in a Group table, the replies finished before this agent's turn. A reply with votes has a line such as `*Host votes: +2*` under it. A round in which some agents were off has a line such as `*Agents B and D sat out this round.*` under the host's message, so the models do not think those agents failed. In a round robin round, the line under the current round's host message is in the present tense: `*Agent B sits out this round.*` Agents are always called by letter, with the host's name for the agent when it has one (see Agent names). The host sees model names, the models do not. The private conversation block appears only in that agent's transcript, placed after the round it followed.
 
 The "Now" section for a round says: "Round 3. The host wrote: ..." or, with an empty note, "Round 3. The host added no note. Continue from where the table left off." When some agents are off, "Agents B and D sit out this round." (or "Agent B sits out this round.") follows "Round 3." The arbiter's "Now" section says the same in the past tense: "Agents B and D sat out this round." In a round robin round, the host's message and its images are already in the transcript, so the "Now" section says whose turn it is and what to answer, without repeating the message:
 

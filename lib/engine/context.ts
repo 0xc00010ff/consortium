@@ -65,7 +65,7 @@ export function buildSeatRequest(table: Table, seatId: SeatId): SpeakRequest {
   const transcript = renderTranscript(table, viewer, round.number, images);
   let now: string[];
   if (turns === "roundRobin") {
-    now = turnNow(round, seatId, round.interaction === "group");
+    now = turnNow(round, seatId, round.interaction === "group", labeler(round.seats, table.seats));
   } else {
     now = roundNow(round, images.length + 1, sitOut(round, "sit"));
     images.push(...round.host.attachments);
@@ -170,21 +170,26 @@ function userMessage(transcript: string, images: Attachment[], now: string[]) {
 
 // ---------- Instructions ----------
 
+// `seats` decides who is at the table and the speaking order. Names come from
+// the table as it is now, so a name the host just gave reaches the next request.
 function seatInstructions(table: Table, seats: Seat[], seat: Seat, interaction: Interaction, turns: Turns): string {
+  const label = labeler(table.seats, seats);
   const others = seats.map((s) => s.id).filter((id) => id !== seat.id);
   const parts: string[] = [];
   parts.push(
     others.length > 0
-      ? `You are Agent ${seat.id} at a table with ${others.length === 1 ? "agent" : "agents"} ${listWords(others)}.`
-      : `You are Agent ${seat.id}, the only agent at the table.`,
+      ? `You are Agent ${label(seat.id)} at a table with ${others.length === 1 ? "agent" : "agents"} ${listWords(others.map(label))}.`
+      : `You are Agent ${label(seat.id)}, the only agent at the table.`,
   );
+  const ownName = agentName(findSeat(table.seats, seat.id) ?? seat);
+  if (ownName) parts.push(`The host calls you ${ownName}.`);
   parts.push("Each agent is an AI model. The host is the person who runs the table and speaks to it between rounds.");
   if (others.length > 0) {
     if (turns === "roundRobin") {
       const order = speakingOrder(seats);
       if (order.length > 1) {
-        parts.push(`In each round, the agents answer one after another, in the order ${order.join(", ")}.`);
-        if (interaction === "group") parts.push(turnPosition(order, seat.id));
+        parts.push(`In each round, the agents answer one after another, in the order ${order.map(label).join(", ")}.`);
+        if (interaction === "group") parts.push(turnPosition(order, seat.id, label));
       }
     } else {
       parts.push(
@@ -214,13 +219,13 @@ function seatInstructions(table: Table, seats: Seat[], seat: Seat, interaction: 
 
 // Where a seat speaks in a round robin round of a Group table, and what that
 // lets it read.
-function turnPosition(order: SeatId[], seatId: SeatId): string {
+function turnPosition(order: SeatId[], seatId: SeatId, label: Labeler): string {
   const index = order.indexOf(seatId);
   if (index < 0) return "Each agent can read the replies given before its turn in the current round.";
   const after = order.length - index - 1;
   const readers = after === 1 ? "the agent after you" : "the agents after you";
   if (index === 0) return `You answer first, and ${readers} will read your reply.`;
-  const previous = `Agent ${order[index - 1]}`;
+  const previous = `Agent ${label(order[index - 1])}`;
   if (after === 0) return `You answer last, after ${previous}. You can read the replies given before yours in the current round.`;
   return `You answer after ${previous}. You can read the replies given before yours in the current round, and ${readers} will read your reply.`;
 }
@@ -247,8 +252,9 @@ export function votesLine(reply: Reply): string | null {
 }
 
 function arbiterInstructions(table: Table, round: Round, arbiter: Arbiter): string {
-  const seats = (round.seats ?? table.seats).map((s) => s.id);
-  const order = speakingOrder(round.seats ?? table.seats);
+  const label = labeler(table.seats, round.seats);
+  const seats = (round.seats ?? table.seats).map((s) => label(s.id));
+  const order = speakingOrder(round.seats ?? table.seats).map(label);
   const arbiters = round.arbiters ?? table.arbiters;
   const readers = arbiters.length > 1 ? "the host, the agents and the other arbiters" : "the host and the agents";
   const intro = [
@@ -309,12 +315,10 @@ function renderTranscript(table: Table, viewer: Viewer, current: number | null, 
     for (const reply of round.replies) {
       if (reply.status !== "done") continue;
       const letter = reply.participantId;
-      if (viewer.kind === "seat") {
-        if (letter === viewer.seatId) out.push(`### Agent ${letter} (you)`, ...replyBody(reply));
-        else if (viewer.interaction === "group") out.push(`### Agent ${letter}`, ...replyBody(reply));
-      } else {
-        out.push(`### Agent ${letter}`, ...replyBody(reply));
-      }
+      const seat = round.seats?.find((s) => s.id === letter) ?? table.seats.find((s) => s.id === letter);
+      const you = viewer.kind === "seat" && letter === viewer.seatId;
+      if (viewer.kind === "seat" && !you && viewer.interaction !== "group") continue;
+      out.push(agentHeading(letter, seat, you), ...replyBody(reply));
     }
 
     const ownIndex = viewer.kind === "arbiter" ? round.arbiterReplies.findIndex((r) => r.participantId === viewer.arbiterId) : -1;
@@ -401,10 +405,10 @@ function roundNow(round: Round, firstImage: number, absent: string): string[] {
 // its images are in the transcript, so this says only whose turn it is and
 // what to reply to. In a Group table it names the agents that have replied
 // before this seat.
-function turnNow(round: Round, seatId: SeatId, readsOthers: boolean): string[] {
+function turnNow(round: Round, seatId: SeatId, readsOthers: boolean, label: Labeler): string[] {
   const index = round.replies.findIndex((r) => r.participantId === seatId);
   const before = round.replies.slice(0, Math.max(index, 0)).filter((r) => r.status === "done");
-  const shown = readsOthers ? before.map((r) => r.participantId) : [];
+  const shown = readsOthers ? before.map((r) => label(r.participantId)) : [];
   const who = shown.length > 0 ? `${shown.length === 1 ? "Agent" : "Agents"} ${listWords(shown)}` : "";
   const position =
     index === 0
@@ -440,7 +444,7 @@ function turnNow(round: Round, seatId: SeatId, readsOthers: boolean): string[] {
 // agent took part. A round saved without its seats predates turning agents
 // off, so nobody sat it out.
 export function sitOut(round: Round, verb: "sit" | "sat"): string {
-  const off = (round.seats ?? []).filter((s) => s.active === false).map((s) => s.id);
+  const off = (round.seats ?? []).filter((s) => s.active === false).map((s) => letterLabel(s.id, s));
   if (off.length === 0) return "";
   const one = off.length === 1;
   const word = verb === "sat" ? "sat" : one ? "sits" : "sit";
@@ -453,6 +457,51 @@ function arbiterName(table: Table, round: Round, arbiterId: string): string {
     table.arbiters.find((a) => a.id === arbiterId)?.name ??
     "Arbiter"
   );
+}
+
+// ---------- Agent names ----------
+
+// The models know each agent by its letter. When the host has named an agent,
+// the name follows the letter in parentheses: "Agent A (Skeptic)" in a
+// sentence, "A (Skeptic)" in a list, and "### Agent A (Skeptic)" or
+// "### Agent A (Skeptic, you)" as a transcript heading.
+
+type Labeler = (id: string) => string;
+
+// The host's name for an agent, on one line, or null when it has none. A name
+// is host text, so line breaks become spaces to keep the markdown intact.
+export function agentName(seat: Pick<Seat, "name"> | undefined): string | null {
+  const name = seat?.name?.replace(/\s+/g, " ").trim();
+  return name || null;
+}
+
+// "Agent A (Skeptic)", or "Agent A" for an agent the host has not named.
+export function agentLabel(seat: Pick<Seat, "id" | "name">): string {
+  return `Agent ${letterLabel(seat.id, seat)}`;
+}
+
+// "A (Skeptic)" or "A", for lists and for use after "Agent" or "agents".
+function letterLabel(id: string, seat: Pick<Seat, "name"> | undefined): string {
+  const name = agentName(seat);
+  return name ? `${id} (${name})` : id;
+}
+
+// Labels agents by letter and name, taking each seat from the first list that
+// has it.
+function labeler(...lists: Array<Seat[] | undefined>): Labeler {
+  return (id) => {
+    for (const seats of lists) {
+      const seat = seats?.find((s) => s.id === id);
+      if (seat) return letterLabel(id, seat);
+    }
+    return id;
+  };
+}
+
+// "### Agent A (Skeptic)", "### Agent B (Optimist, you)" or "### Agent C (you)".
+function agentHeading(id: string, seat: Seat | undefined, you: boolean): string {
+  const notes = [agentName(seat), you ? "you" : null].filter(Boolean);
+  return notes.length > 0 ? `### Agent ${id} (${notes.join(", ")})` : `### Agent ${id}`;
 }
 
 // ---------- Wording ----------

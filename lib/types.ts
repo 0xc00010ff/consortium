@@ -8,6 +8,11 @@
 export const SEAT_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
 export type SeatId = (typeof SEAT_LETTERS)[number];
 
+// The agent colors, in the order the letters use them by default: A is
+// blue, B is green, and so on. The host can give an agent any of them.
+export const SEAT_COLORS = ["blue", "green", "purple", "orange", "teal", "pink", "olive", "brown"] as const;
+export type SeatColor = (typeof SEAT_COLORS)[number];
+
 export type Maker = "anthropic" | "openai" | "google" | "xai";
 export const MAKER_LABELS: Record<Maker, string> = {
   anthropic: "Anthropic",
@@ -44,6 +49,10 @@ export interface Seat {
   modelId: string;
   modelName: string;
   maker: Maker;
+  // The host's name for the agent, shown in place of the model name and
+  // given to the models next to the letter. Absent means the model name.
+  name?: string;
+  color?: SeatColor; // absent means the letter's own color
   browsing: boolean; // default true
   // For a command line tool: the ToolModel id to run it with. Absent means
   // the tool's own default.

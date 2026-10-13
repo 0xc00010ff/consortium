@@ -4,7 +4,7 @@
 
 import type { Arbiter, Attachment, PrivateMessage, Reply, Round, Seat, SeatId, Table, ToolActivity } from "@/lib/types";
 import { MAKER_LABELS } from "@/lib/types";
-import { sitOut, votesLine } from "./context";
+import { agentName, sitOut, votesLine } from "./context";
 
 export function tableToMarkdown(table: Table): string {
   const out: string[] = [];
@@ -83,7 +83,7 @@ function replyNotes(reply: Reply | PrivateMessage): string | null {
 function privateBlock(table: Table, seatId: SeatId, messages: PrivateMessage[], afterRound: number): string[] {
   const when = afterRound > 0 ? `after round ${afterRound}` : "before round 1";
   const seat = table.seats.find((s) => s.id === seatId);
-  const seatName = seat ? `Agent ${seatId} · ${seat.modelName}` : `Agent ${seatId}`;
+  const seatName = seat ? seatTitle(seat) : `Agent ${seatId}`;
   const out = [`### Private conversation with Agent ${seatId}, ${when}`];
   for (const message of messages) {
     if (message.role === "host") {
@@ -128,7 +128,13 @@ function privateConversations(table: Table): Map<number, Array<[SeatId, PrivateM
 
 function seatHeading(table: Table, round: Round, seatId: string): string {
   const seat = round.seats?.find((s) => s.id === seatId) ?? table.seats.find((s) => s.id === seatId);
-  return seat ? `### Agent ${seatId} · ${seat.modelName}` : `### Agent ${seatId}`;
+  return seat ? `### ${seatTitle(seat)}` : `### Agent ${seatId}`;
+}
+
+// "Agent A · Skeptic · Claude Sonnet 5.5", or "Agent A · Claude Sonnet 5.5"
+// for an agent the host has not named.
+function seatTitle(seat: Seat): string {
+  return [`Agent ${seat.id}`, agentName(seat), seat.modelName].filter(Boolean).join(" · ");
 }
 
 function arbiterHeading(table: Table, round: Round, arbiterId: string): string {
@@ -137,7 +143,8 @@ function arbiterHeading(table: Table, round: Round, arbiterId: string): string {
 }
 
 function seatLine(seat: Seat): string {
-  return `Agent ${seat.id}, ${seat.modelName} (${MAKER_LABELS[seat.maker] ?? seat.maker})${seat.browsing ? ", browsing on" : ""}${seat.active === false ? ", off" : ""}`;
+  const name = agentName(seat);
+  return `Agent ${seat.id}, ${name ? `${name}, ` : ""}${seat.modelName} (${MAKER_LABELS[seat.maker] ?? seat.maker})${seat.browsing ? ", browsing on" : ""}${seat.active === false ? ", off" : ""}`;
 }
 
 function arbiterLine(arbiter: Arbiter): string {
