@@ -280,11 +280,51 @@ export type SpeakFn = (
 
 export interface ModelsResponse {
   // true when the server writes the replies itself: CONSORTIUM_MOCK=1, or no
-  // AI_GATEWAY_API_KEY and no command line tool installed.
+  // API key at all (gateway or provider, from Settings or the environment)
+  // and no command line tool installed.
   mock: boolean;
   models: ModelInfo[]; // the short list, in maker order and tier order
   defaults: {
     seats: string[]; // one model id per maker, for a new table
     arbiter: string; // a small, fast model id for a new arbiter
   };
+}
+
+// ---------- Settings (app/api/settings) ----------
+
+// API keys the server can use. "gateway" is the Vercel AI Gateway key, which
+// covers every model and web search. The others are keys for one provider's
+// own API, used for that provider's models when there is no gateway key.
+export const KEY_NAMES = ["gateway", "anthropic", "openai", "google", "xai"] as const;
+export type KeyName = (typeof KEY_NAMES)[number];
+
+export interface KeyStatus {
+  set: boolean;
+  last4?: string; // the last four characters, when set
+  source?: "settings" | "env"; // where the key in use comes from
+  value?: string; // the whole key, only when the settings were read with reveal
+}
+
+// A command line tool as the server found it.
+export interface ToolStatus {
+  id: "cli/claude-code" | "cli/codex";
+  name: string; // "Claude Code" or "Codex"
+  installed: boolean;
+  path?: string; // the command the server runs
+  version?: string;
+  defaultModel?: string; // as shown in the model picker
+  configuredPath?: string; // the path override saved in the settings, if any
+}
+
+export interface SettingsResponse {
+  keys: Record<KeyName, KeyStatus>;
+  tools: ToolStatus[];
+  webSearch: boolean; // true when a gateway key makes the web search tool available
+}
+
+// What the settings modal sends. A null clears a value; a missing field is
+// left alone.
+export interface SettingsUpdate {
+  keys?: Partial<Record<KeyName, string | null>>;
+  toolPaths?: Partial<Record<"claude" | "codex", string | null>>;
 }

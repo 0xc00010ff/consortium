@@ -4,18 +4,22 @@
 // Where a call goes:
 // - CONSORTIUM_MOCK=1: scripted replies for every model id.
 // - "cli/claude-code" or "cli/codex": the tool on this machine (lib/server/cli.ts).
-// - Any other id: the AI Gateway with a key. Without a key, scripted replies,
-//   unless Claude Code or Codex is installed. Then the list offers only those
-//   tools, and a gateway id gets a plain error instead of a sample reply.
+// - Any other id: the AI Gateway when a gateway key is set, otherwise the
+//   maker's own API when that maker has a key (lib/server/providers.ts).
+//   Without any key and without Claude Code or Codex, scripted replies.
+//   Otherwise a model without a key gets a plain error.
 
 import type { SpeakEvent, SpeakRequest } from "@/lib/types";
 import { cliSpeakEvents } from "@/lib/server/cli";
 import { findCliTool, getCliTools, isCliModelId } from "@/lib/server/cliTools";
-import { hasGatewayKey, isForcedMock } from "@/lib/server/env";
-import { streamSpeakEvents } from "@/lib/server/gateway";
+import { isForcedMock } from "@/lib/server/env";
+import { providerService, streamSpeakEvents } from "@/lib/server/gateway";
 import { mockSpeakEvents } from "@/lib/server/mock";
 import { eventsResponse } from "@/lib/server/ndjson";
 import { SPEAK_TIME_LIMIT_MS, withTimeLimit } from "@/lib/server/timeLimit";
+import { routeModel } from "@/lib/server/providers";
+import { hasAnyModelKey, resolveKeys } from "@/lib/server/settings";
+import { browsingTools } from "@/lib/server/tools";
 import { parseSpeakRequest } from "@/lib/server/validate";
 
 // A seat may search, read pages and then answer, which can take a while.
@@ -56,13 +60,22 @@ function speakEvents(request: SpeakRequest, signal: AbortSignal): AsyncGenerator
     return cliSpeakEvents({ request, signal, tool });
   }
 
-  if (hasGatewayKey()) return streamSpeakEvents({ model: request.modelId, request, signal });
-  if (getCliTools().length > 0) {
-    return single(
-      `${request.modelId} runs through the AI Gateway, and no AI_GATEWAY_API_KEY is set. Choose Claude Code or Codex for this agent, or add a key to .env.local.`,
-    );
+  const keys = resolveKeys();
+  if (!hasAnyModelKey(keys) && getCliTools().length === 0) return mockSpeakEvents(request, signal);
+
+  const route = routeModel(request.modelId, keys);
+  if (route.kind === "missing-key") return single(route.message);
+  if (route.kind === "gateway") {
+    return streamSpeakEvents({ model: route.model, request, signal, tools: browsingTools(route.gatewayKey) });
   }
-  return mockSpeakEvents(request, signal);
+  // A provider's own API has no web search, so only the page reader is offered.
+  return streamSpeakEvents({
+    model: route.model,
+    request,
+    signal,
+    tools: browsingTools(null),
+    service: providerService(route.service),
+  });
 }
 
 async function* single(message: string): AsyncGenerator<SpeakEvent> {

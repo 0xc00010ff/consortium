@@ -2,17 +2,20 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { SpeakEvent, SpeakRequest } from "@/lib/types";
 import { setCliToolDetector } from "@/lib/server/cliTools";
 import { CLAUDE_BROWSING_LINES, fakeTool } from "@/lib/server/fakeTool.testkit";
+import { isolateSettings, removeSettingsDirs } from "@/lib/server/settingsHome.testkit";
 import { POST } from "./route";
 
 const saved = { ...process.env };
 
 beforeAll(() => {
+  isolateSettings();
   process.env.CONSORTIUM_MOCK = "1";
   process.env.CONSORTIUM_MOCK_DELAY = "0";
 });
 
 afterAll(() => {
   process.env = saved;
+  removeSettingsDirs();
 });
 
 function post(body: unknown): Promise<Response> {
@@ -119,6 +122,7 @@ describe("POST /api/speak for Claude Code and Codex", () => {
   afterEach(() => {
     process.env.CONSORTIUM_MOCK = "1";
     delete process.env.AI_GATEWAY_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
     setCliToolDetector(null);
   });
 
@@ -168,9 +172,17 @@ describe("POST /api/speak for Claude Code and Codex", () => {
     delete process.env.AI_GATEWAY_API_KEY;
     setCliToolDetector(() => [{ id: "cli/codex", bin: "/x/codex", configuredModel: null }]);
     const events = await readEvents(await post(seatRequest));
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ type: "error" });
-    expect((events[0] as { message: string }).message).toContain("no AI_GATEWAY_API_KEY is set");
+    expect(events).toEqual([
+      { type: "error", message: "No key for Anthropic. Add a gateway key or an Anthropic key in Settings." },
+    ]);
+  });
+
+  it("refuses a model whose maker has no key when another maker has one", async () => {
+    delete process.env.CONSORTIUM_MOCK;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test-not-used";
+    setCliToolDetector(() => []);
+    const events = await readEvents(await post({ ...seatRequest, modelId: "openai/gpt-6.1-sol" }));
+    expect(events).toEqual([{ type: "error", message: "No key for OpenAI. Add a gateway key or an OpenAI key in Settings." }]);
   });
 
   it("keeps sample replies for gateway models without a key when no tool is installed", async () => {

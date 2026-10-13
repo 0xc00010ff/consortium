@@ -638,9 +638,19 @@ function stopChild(child: ChildProcess): void {
 // The child gets this server's environment, minus API keys, so the call
 // runs on the subscription the tool is signed in with, and minus the
 // variables that mark a process as running inside Claude Code.
-const REMOVED_ENV = ["ANTHROPIC_API_KEY", "CODEX_API_KEY", "AI_GATEWAY_API_KEY", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"];
+const REMOVED_ENV = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "CODEX_API_KEY",
+  "AI_GATEWAY_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GEMINI_API_KEY",
+  "XAI_API_KEY",
+  "CLAUDECODE",
+  "CLAUDE_CODE_ENTRYPOINT",
+];
 
-function childEnv(): NodeJS.ProcessEnv {
+export function childEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
   for (const key of REMOVED_ENV) delete env[key];
   return env;

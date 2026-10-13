@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelsResponse } from "@/lib/types";
 import { setCliToolDetector } from "@/lib/server/cliTools";
 import { clearModelsCache, MOCK_MODELS } from "@/lib/server/models";
+import { isolateSettings, removeSettingsDirs } from "@/lib/server/settingsHome.testkit";
 import { GET } from "./route";
 
 const saved = { ...process.env };
 
 beforeEach(() => {
+  isolateSettings();
   // Mock mode, so the tests never reach the gateway with a real key.
   process.env.CONSORTIUM_MOCK = "1";
   delete process.env.AI_GATEWAY_API_KEY;
@@ -22,6 +24,7 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = { ...saved };
+  removeSettingsDirs();
   vi.unstubAllGlobals();
   setCliToolDetector(null);
   clearModelsCache();

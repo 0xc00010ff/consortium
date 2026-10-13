@@ -10,7 +10,9 @@
 // in, so neither tab's rounds are lost.
 
 import type { ModelsResponse, PrivateMessage, SeatId, Table, TableStore } from "@/lib/types";
-import { createTableStore, newTable, speak } from "./engine";
+import { applyEdit, createTableStore, newTable, speak } from "./engine";
+import { applyPreset, builtinPresets, listPresets } from "./presets";
+import { readDefaultPreset } from "./settings";
 import { createSaver, INDEX_KEY, readTable, reloadIndex, removeTable, tableIdFromKey, writeTable, type Saver } from "./storage";
 import { isBusy, UNTITLED } from "./view";
 
@@ -24,6 +26,7 @@ interface Entry {
 const entries = new Map<string, Entry>();
 const deleted = new Set<string>();
 let draft: TableStore | null = null;
+let draftAsMade: Table | null = null; // the draft's table before any edit
 
 // ---------- a version number, so the app re-reads a store that was replaced ----------
 
@@ -193,8 +196,29 @@ export function openTable(id: string): TableStore | null {
 // The current draft, or a new one when there is none.
 export function getDraft(data: ModelsResponse): TableStore {
   if (draft && draft.getTable().rounds.length === 0) return draft;
-  draft = track(createTableStore(newTable(data, data.models), speak));
+  draft = track(createTableStore(newDraftTable(data), speak));
+  draftAsMade = draft.getTable();
   return draft;
+}
+
+// A new table with the default setup chosen in Settings. A preset that no
+// longer exists, or is not available with this model list, is ignored.
+function newDraftTable(data: ModelsResponse): Table {
+  const table = newTable(data, data.models);
+  const id = readDefaultPreset();
+  if (!id) return table;
+  const preset = [...builtinPresets(data), ...listPresets()].find((p) => p.id === id);
+  return preset ? applyEdit(table, applyPreset(preset)) : table;
+}
+
+// The default setup changed. A draft nobody has edited yet is dropped, so the
+// next one is made with the new setup.
+export function defaultSetupChanged() {
+  if (!draft || draft.getTable() !== draftAsMade) return;
+  drop(draft.getTable().id);
+  draft = null;
+  draftAsMade = null;
+  bump();
 }
 
 export function isDraft(store: TableStore): boolean {
@@ -203,7 +227,9 @@ export function isDraft(store: TableStore): boolean {
 
 // Called once the draft's first round has started. The next New table makes a fresh draft.
 export function releaseDraft(store: TableStore) {
-  if (store === draft) draft = null;
+  if (store !== draft) return;
+  draft = null;
+  draftAsMade = null;
 }
 
 export function deleteTable(id: string) {

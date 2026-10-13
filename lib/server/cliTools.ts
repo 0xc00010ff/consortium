@@ -3,12 +3,15 @@
 // model list as "cli/claude-code" or "cli/codex". Calls to it run on the
 // host's own subscription through lib/server/cli.ts.
 //
-// Detection only looks at files. It never starts either tool.
+// Detection only looks at files. It never starts either tool. A path saved
+// in the settings file wins over CONSORTIUM_CLAUDE_BIN and
+// CONSORTIUM_CODEX_BIN, which win over the search.
 
 import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ModelInfo, ToolModel } from "@/lib/types";
+import { readSettingsFile, type SettingsFile } from "./settings";
 
 export const CLAUDE_CODE_ID = "cli/claude-code";
 export const CODEX_ID = "cli/codex";
@@ -110,12 +113,19 @@ function overrideBin(value: string | undefined): string | null {
   return bin && isExecutableFile(bin) ? bin : null;
 }
 
-export function findClaudeBin(env: Env = process.env): string | null {
+// The tool paths saved in the settings file.
+export type ToolPaths = SettingsFile["toolPaths"];
+
+// A path that is set but is not an executable file means the tool is not
+// found. The search does not run in its place, so a wrong path shows.
+export function findClaudeBin(env: Env = process.env, paths: ToolPaths = {}): string | null {
+  if (paths.claude?.trim()) return overrideBin(paths.claude);
   if (env.CONSORTIUM_CLAUDE_BIN?.trim()) return overrideBin(env.CONSORTIUM_CLAUDE_BIN);
   return findInDirs("claude", env);
 }
 
-export function findCodexBin(env: Env = process.env): string | null {
+export function findCodexBin(env: Env = process.env, paths: ToolPaths = {}): string | null {
+  if (paths.codex?.trim()) return overrideBin(paths.codex);
   if (env.CONSORTIUM_CODEX_BIN?.trim()) return overrideBin(env.CONSORTIUM_CODEX_BIN);
   const home = os.homedir();
   const appBins = [...CODEX_APP_BINS, ...CODEX_APP_BINS.map((bin) => path.join(home, bin))];
@@ -214,20 +224,21 @@ export function forgetSeenModels(): void {
 
 export type CliToolDetector = () => CliTool[];
 
-export function detectCliTools(env: Env = process.env): CliTool[] {
+export function detectCliTools(env: Env = process.env, paths: ToolPaths = {}): CliTool[] {
   const tools: CliTool[] = [];
-  const claude = findClaudeBin(env);
+  const claude = findClaudeBin(env, paths);
   if (claude) tools.push({ id: CLAUDE_CODE_ID, bin: claude, configuredModel: claudeConfiguredModel(env) });
-  const codex = findCodexBin(env);
+  const codex = findCodexBin(env, paths);
   if (codex) tools.push({ id: CODEX_ID, bin: codex, configuredModel: codexModelFromToml(readCodexConfig(env)) });
   return tools;
 }
 
 // Tests replace the detector so the list does not depend on this machine.
-let detector: CliToolDetector = () => detectCliTools();
+const defaultDetector: CliToolDetector = () => detectCliTools(process.env, readSettingsFile().toolPaths);
+let detector: CliToolDetector = defaultDetector;
 
 export function setCliToolDetector(next: CliToolDetector | null): void {
-  detector = next ?? (() => detectCliTools());
+  detector = next ?? defaultDetector;
   toolCache = null;
 }
 

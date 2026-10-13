@@ -7,14 +7,18 @@
 // the old one on its own. If a maker renames everything, the three newest
 // models from that maker are shown instead.
 //
-// Claude Code and Codex, when installed on this machine, come first in the
-// list. Without a gateway key they are the whole list. Claude Code offers its
-// model aliases, and Codex offers the OpenAI models from the short list.
+// With a gateway key, the list comes from the gateway. With provider keys
+// only, it comes from the gateway's public list, limited to the makers that
+// have a key. Claude Code and Codex, when installed on this machine, come
+// first in the list, and without any key they are the whole list. Claude Code
+// offers its model aliases, and Codex offers the OpenAI models from the short
+// list.
 
-import { gateway } from "ai";
 import type { Maker, ModelInfo, ModelsResponse, ToolModel } from "@/lib/types";
 import { CLAUDE_CODE_ID, CODEX_ID, clearCliToolCache, cliModelInfos, getCliTools, type CliTool } from "./cliTools";
-import { hasGatewayKey, isForcedMock } from "./env";
+import { isForcedMock } from "./env";
+import { gatewayProvider } from "./gatewayClient";
+import { makersWithKeys, resolveKeys, type ResolvedKeys } from "./settings";
 
 const CACHE_MS = 10 * 60 * 1000;
 const MAKER_ORDER: Maker[] = ["anthropic", "openai", "google", "xai"];
@@ -77,7 +81,10 @@ export const MOCK_MODELS: ModelInfo[] = [
   { id: "spacexai/grok-4.1-fast-reasoning", name: "Grok 4.1 Fast Reasoning", maker: "xai" },
 ];
 
-let cache: { at: number; mock: boolean; value: ModelsResponse } | null = null;
+// The gateway list for one key, and the public list (null when it could not
+// be fetched), each kept for 10 minutes.
+let gatewayCache: { at: number; key: string; value: ModelsResponse } | null = null;
+let publicCache: { at: number; entries: GatewayEntry[] | null } | null = null;
 
 export function makerOf(id: string): Maker | null {
   for (const [prefix, maker] of PREFIXES) if (id.startsWith(prefix)) return maker;
@@ -114,38 +121,62 @@ export async function fetchPublicModelList(fetchFn: typeof fetch = fetch): Promi
 export interface ModelsOptions {
   now?: number;
   tools?: CliTool[]; // the installed tools; detected on this machine when absent
+  keys?: ResolvedKeys; // the keys in use; read from the settings and the environment when absent
 }
 
 // The gateway part of the list is cached for 10 minutes. The tool entries are
 // added on every request, so a model seen in a real call shows at once.
-export async function getModelsResponse({ now = Date.now(), tools }: ModelsOptions = {}): Promise<ModelsResponse> {
+export async function getModelsResponse({ now = Date.now(), tools, keys }: ModelsOptions = {}): Promise<ModelsResponse> {
   const found = tools ?? getCliTools(now);
-  const forced = isForcedMock();
-  const hasClaude = found.some((t) => t.id === CLAUDE_CODE_ID);
+
+  // CONSORTIUM_MOCK=1: sample replies for everything, so no key is read.
+  if (isForcedMock()) {
+    const sample = await sampleList(now);
+    return withTools(sample, found, sample.models);
+  }
+
+  const resolved = keys ?? resolveKeys();
+  const gatewayKey = resolved.gateway?.value;
+  if (gatewayKey) {
+    const base = await gatewayList(now, gatewayKey);
+    return withTools(base, found, base.models);
+  }
+
+  // Provider keys only: the public list, limited to the makers with a key.
+  // Codex still gets the OpenAI models from the full list.
+  const makers = makersWithKeys(resolved);
+  if (makers.length > 0) {
+    const base = await providerList(now, makers);
+    const openai = found.some((t) => t.id === CODEX_ID) ? (await sampleList(now)).models : [];
+    return withTools(base, found, openai);
+  }
 
   // No key: the installed tools are the whole list. The public gateway list is
   // read only to offer Codex its models. With no tools, the app stays in
   // sample mode.
-  if (!forced && !hasGatewayKey() && found.length > 0) {
-    const openai = found.some((t) => t.id === CODEX_ID) ? codexChoices((await baseModelsResponse(now, true)).models) : [];
+  if (found.length > 0) {
+    const openai = found.some((t) => t.id === CODEX_ID) ? codexChoices((await sampleList(now)).models) : [];
     const installed = cliModelInfos(found, openai);
     const ids = installed.map((m) => m.id);
     return {
       mock: false,
       models: installed,
-      defaults: { seats: ids, arbiter: hasClaude ? CLAUDE_CODE_ID : ids[0] },
+      defaults: { seats: ids, arbiter: found.some((t) => t.id === CLAUDE_CODE_ID) ? CLAUDE_CODE_ID : ids[0] },
     };
   }
+  return sampleList(now);
+}
 
-  // With a key, or in sample mode, the installed tools come first and are the
-  // default agents, since they run on the host's subscriptions. Claude Code is
-  // the default arbiter when installed; otherwise it stays a gateway model.
-  const base = await baseModelsResponse(now, forced || !hasGatewayKey());
-  const installed = cliModelInfos(found, codexChoices(base.models));
+// The installed tools come first and are the default agents, since they run
+// on the host's subscriptions. Claude Code is the default arbiter when
+// installed; otherwise it stays a gateway model. openaiSource is the list
+// Codex takes its model choices from.
+function withTools(base: ModelsResponse, found: CliTool[], openaiSource: ModelInfo[]): ModelsResponse {
+  const installed = cliModelInfos(found, codexChoices(openaiSource));
   if (installed.length === 0) return base;
   const defaults = {
     seats: installed.map((m) => m.id),
-    arbiter: hasClaude ? CLAUDE_CODE_ID : base.defaults.arbiter,
+    arbiter: found.some((t) => t.id === CLAUDE_CODE_ID) ? CLAUDE_CODE_ID : base.defaults.arbiter,
   };
   return { ...base, models: [...installed, ...base.models], defaults };
 }
@@ -162,26 +193,47 @@ export function codexChoices(models: ModelInfo[]): ToolModel[] {
   return fromList.length > 0 ? fromList : pick(MOCK_MODELS);
 }
 
-async function baseModelsResponse(now: number, mock: boolean): Promise<ModelsResponse> {
-  if (cache && cache.mock === mock && now - cache.at < CACHE_MS) return cache.value;
-  let value: ModelsResponse;
-  if (mock) {
-    try {
-      value = mockModelsResponse(await fetchPublicModelList());
-    } catch (err) {
-      console.warn("Could not fetch the public model list, so the built-in sample list is used.", err);
-      value = mockModelsResponse();
-    }
-  } else {
-    const { models } = await gateway.getAvailableModels();
-    value = buildModelsResponse(models);
-  }
-  cache = { at: now, mock, value };
+async function gatewayList(now: number, key: string): Promise<ModelsResponse> {
+  if (gatewayCache && gatewayCache.key === key && now - gatewayCache.at < CACHE_MS) return gatewayCache.value;
+  const { models } = await gatewayProvider(key).getAvailableModels();
+  const value = buildModelsResponse(models);
+  gatewayCache = { at: now, key, value };
   return value;
 }
 
+async function publicEntries(now: number): Promise<GatewayEntry[] | null> {
+  if (publicCache && now - publicCache.at < CACHE_MS) return publicCache.entries;
+  let entries: GatewayEntry[] | null = null;
+  try {
+    entries = await fetchPublicModelList();
+  } catch (err) {
+    console.warn("Could not fetch the public model list, so the built-in sample list is used.", err);
+  }
+  publicCache = { at: now, entries };
+  return entries;
+}
+
+// The list for sample mode, also the source of Codex's choices without a gateway key.
+async function sampleList(now: number): Promise<ModelsResponse> {
+  return mockModelsResponse((await publicEntries(now)) ?? undefined);
+}
+
+// The models of the makers with a key, from the public list, or from the
+// built-in list when the public list cannot be read.
+async function providerList(now: number, makers: Maker[]): Promise<ModelsResponse> {
+  const keep = (id: string) => {
+    const maker = makerOf(id);
+    return maker !== null && makers.includes(maker);
+  };
+  const entries = (await publicEntries(now)) ?? [];
+  const fromList = buildModelsResponse(entries.filter((e) => keep(e.id)));
+  if (fromList.models.length > 0) return fromList;
+  return buildModelsResponse(MOCK_MODELS.filter((m) => keep(m.id)).map((m) => ({ id: m.id, name: m.name })));
+}
+
 export function clearModelsCache(): void {
-  cache = null;
+  gatewayCache = null;
+  publicCache = null;
   clearCliToolCache();
 }
 

@@ -1,5 +1,6 @@
-// Real model calls through the AI Gateway. Turns a SpeakRequest into a
-// streamText call and translates the stream into SpeakEvents.
+// Real model calls, through the AI Gateway or directly on a provider's API.
+// Turns a SpeakRequest into a streamText call and translates the stream into
+// SpeakEvents. Only the model instance differs between the two routes.
 
 import {
   isStepCount,
@@ -13,27 +14,37 @@ import {
   type ToolSet,
 } from "ai";
 import type { Attachment, ChatTurn, SpeakEvent, SpeakRequest, ToolName, Usage } from "@/lib/types";
-import { browsingTools } from "./tools";
+import { browsingTools, NO_WEB_SEARCH_NOTE } from "./tools";
 
 const MAX_STEPS = 6; // search, read, then answer
 const LABEL_LIMIT = 140;
 
 export interface StreamSpeakOptions {
-  model: LanguageModel; // a gateway id string, or a model object in tests
+  model: LanguageModel;
   request: SpeakRequest;
   signal: AbortSignal;
-  tools?: ToolSet; // replaces the browsing tools, for tests
+  // The browsing tools for this call. Without them, only the page reader is
+  // offered, since web search needs a gateway key.
+  tools?: ToolSet;
+  service?: ModelService; // who answers, for error messages
 }
 
-export async function* streamSpeakEvents({ model, request, signal, tools }: StreamSpeakOptions): AsyncGenerator<SpeakEvent> {
+export async function* streamSpeakEvents({
+  model,
+  request,
+  signal,
+  tools,
+  service = GATEWAY_SERVICE,
+}: StreamSpeakOptions): AsyncGenerator<SpeakEvent> {
   const started = Date.now();
   let failure: unknown = null;
+  const browsing = request.browsing ? (tools ?? browsingTools(null)) : undefined;
 
   const result = streamText({
     model,
-    instructions: request.instructions || undefined,
+    instructions: withSearchNote(request.instructions, browsing) || undefined,
     messages: toModelMessages(request.messages),
-    tools: request.browsing ? (tools ?? browsingTools()) : undefined,
+    tools: browsing,
     stopWhen: isStepCount(MAX_STEPS),
     maxOutputTokens: request.maxOutputTokens,
     abortSignal: signal,
@@ -42,7 +53,14 @@ export async function* streamSpeakEvents({ model, request, signal, tools }: Stre
     },
   });
 
-  yield* toSpeakEvents(result.stream, { modelId: request.modelId, signal, started, failure: () => failure });
+  yield* toSpeakEvents(result.stream, { modelId: request.modelId, signal, started, failure: () => failure, service });
+}
+
+// The table's instructions mention web search. When browsing is on without
+// it, one sentence tells the model so.
+export function withSearchNote(instructions: string, tools: ToolSet | undefined): string {
+  if (!tools || "web_search" in tools) return instructions;
+  return instructions ? `${instructions}\n\n${NO_WEB_SEARCH_NOTE}` : NO_WEB_SEARCH_NOTE;
 }
 
 export interface TranslateOptions {
@@ -50,12 +68,13 @@ export interface TranslateOptions {
   signal: AbortSignal;
   started: number;
   failure?: () => unknown; // the error reported through onError, if any
+  service?: ModelService;
 }
 
 // Translates streamText parts into SpeakEvents.
 export async function* toSpeakEvents(
   parts: AsyncIterable<TextStreamPart<ToolSet>>,
-  { modelId, signal, started, failure }: TranslateOptions,
+  { modelId, signal, started, failure, service = GATEWAY_SERVICE }: TranslateOptions,
 ): AsyncGenerator<SpeakEvent> {
   const toolNames = new Map<string, ToolName>();
   let usage: Usage = {};
@@ -104,7 +123,7 @@ export async function* toSpeakEvents(
           break;
         case "error":
           if (signal.aborted) return;
-          yield { type: "error", message: describeModelError(part.error, modelId) };
+          yield { type: "error", message: describeModelError(part.error, modelId, service) };
           return;
         case "abort":
           return;
@@ -114,7 +133,7 @@ export async function* toSpeakEvents(
     }
   } catch (err) {
     if (signal.aborted) return;
-    yield { type: "error", message: describeModelError(failure?.() ?? err, modelId) };
+    yield { type: "error", message: describeModelError(failure?.() ?? err, modelId, service) };
     return;
   }
 
@@ -202,8 +221,25 @@ function shortError(error: unknown): string {
 
 // ---------- Errors ----------
 
-// Turns a model or gateway error into a plain message for the interface.
-export function describeModelError(error: unknown, modelId: string): string {
+// Who answers a call, for error messages: the AI Gateway, or a provider.
+export interface ModelService {
+  name: string; // "The AI Gateway" or "Anthropic"
+  account: string; // "AI Gateway" or "Anthropic", as in "the Anthropic account"
+  keyHint: string; // where to check the key
+}
+
+export const GATEWAY_SERVICE: ModelService = {
+  name: "The AI Gateway",
+  account: "AI Gateway",
+  keyHint: "Check the gateway key in Settings.",
+};
+
+export function providerService(label: string): ModelService {
+  return { name: label, account: label, keyHint: `Check the ${label} key in Settings.` };
+}
+
+// Turns a model, gateway or provider error into a plain message for the interface.
+export function describeModelError(error: unknown, modelId: string, service: ModelService = GATEWAY_SERVICE): string {
   const inner = RetryError.isInstance(error) ? error.lastError : error;
   const e = (typeof inner === "object" && inner !== null ? inner : {}) as {
     type?: unknown;
@@ -213,21 +249,22 @@ export function describeModelError(error: unknown, modelId: string): string {
   const type = typeof e.type === "string" ? e.type : "";
   const status = typeof e.statusCode === "number" ? e.statusCode : 0;
   const message = typeof e.message === "string" ? e.message : typeof inner === "string" ? inner : "";
+  const { name } = service;
 
   if (type === "authentication_error" || status === 401) {
-    return "The AI Gateway did not accept the API key. Check AI_GATEWAY_API_KEY in .env.local, then restart the server.";
+    return `${name} did not accept the API key. ${service.keyHint}`;
   }
   if (type === "model_not_found" || status === 404) {
-    return `The AI Gateway does not offer the model ${modelId}. Choose a different model.`;
+    return `${name} does not offer the model ${modelId}. Choose a different model.`;
   }
   if (type === "rate_limit_exceeded" || status === 429) {
-    return "The AI Gateway is limiting requests right now. Wait a minute and try again.";
+    return `${name} is limiting requests right now. Wait a minute and try again.`;
   }
   if (status === 402 || /insufficient (funds|credit)|out of credit/i.test(message)) {
-    return "The AI Gateway account has run out of credit. Add credit, then try again.";
+    return `The ${service.account} account has run out of credit. Add credit, then try again.`;
   }
   if (type === "forbidden" || status === 403) {
-    return `The AI Gateway refused the request for ${modelId}. Check that this model is enabled for your team.`;
+    return `${name} refused the request for ${modelId}. Check that this model is enabled for your account.`;
   }
   if (type === "internal_server_error" || status >= 500) {
     return `The provider for ${modelId} had a server error. Try again in a moment.`;

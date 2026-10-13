@@ -6,6 +6,7 @@ import { FIXTURE_MODELS, isFixtureName, previewTable } from "@/lib/ui/fixtures";
 import { indexStore, storageWarningStore } from "@/lib/ui/storage";
 import { deleteTable, getDraft, isDraft, openTable, releaseDraft, renameTable, storesVersion, subscribeStores } from "@/lib/ui/tables";
 import { useTable } from "@/lib/ui/useStore";
+import { SettingsModal } from "./SettingsModal";
 import { Sidebar } from "./Sidebar";
 import { TableScreen } from "./TableScreen";
 import { Banner, cx, IconButton } from "./ui";
@@ -101,6 +102,7 @@ export default function App() {
   useSyncExternalStore(subscribeStores, storesVersion, () => 0);
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [participantsOpen, setParticipantsOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const preview = route?.view === "preview";
   const data = preview ? FIXTURE_MODELS : models.data;
@@ -217,9 +219,11 @@ export default function App() {
           onRename={renameTable}
           onDelete={onDelete}
           onHide={() => setSidebarHidden(true)}
+          onSettings={() => setSettingsOpen(true)}
         />
       )}
       {screen}
+      {settingsOpen ? <SettingsModal data={data} onClose={() => setSettingsOpen(false)} /> : null}
     </div>
   );
 }
@@ -238,6 +242,7 @@ function SidebarFor({
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onHide: () => void;
+  onSettings: () => void;
 }) {
   if (!store) return <Sidebar currentId={null} currentTitle="" showCurrent={false} {...rest} />;
   return <SidebarWithTable store={store} preview={preview} {...rest} />;
@@ -257,6 +262,7 @@ function SidebarWithTable({
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onHide: () => void;
+  onSettings: () => void;
 }) {
   const table = useTable(store);
   const saved = recent.some((t) => t.id === table.id);

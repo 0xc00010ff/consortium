@@ -20,7 +20,7 @@ npm run dev
 
 Then open http://localhost:3000.
 
-To use real models, copy `.env.example` to `.env.local` and set `AI_GATEWAY_API_KEY` to a Vercel AI Gateway key. Restart the server after you change it. Nothing runs until you send a message or press Next round. Each round sends the whole transcript so far to every agent, so later rounds cost more than early ones.
+To use real models, add an API key in Settings, as described below. Nothing runs until you send a message or press Next round. Each round sends the whole transcript so far to every agent, so later rounds cost more than early ones.
 
 To try the app without spending anything, run it in sample mode. The app then writes the replies itself:
 
@@ -28,17 +28,27 @@ To try the app without spending anything, run it in sample mode. The app then wr
 npm run dev:mock
 ```
 
+## Settings
+
+Settings holds your API keys and the paths to Claude Code and Codex. It saves them in `~/.consortium/settings.json`, which only your user account can read, and a change takes effect on the next message without a restart. To keep the file somewhere else, set `CONSORTIUM_HOME` to a folder.
+
+The simplest setup is one Vercel AI Gateway key. It runs every model in the list and also gives agents web search. Without a gateway key, you can add a key from Anthropic, OpenAI, Google or xAI instead. The list then shows only those makers' models, and each call goes straight to that maker's API. With a gateway key set, the gateway is used for every model and the other keys are not used.
+
+Web search needs the gateway key. With provider keys only, an agent with browsing on can still read a page whose URL it knows, and it is told that web search is not available.
+
+Environment variables still work, for example in `.env.local`: `AI_GATEWAY_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY` (or `GEMINI_API_KEY`) and `XAI_API_KEY`. A key saved in Settings wins over the same key in the environment. Restart the server after you change `.env.local`.
+
 ## Using your Claude Code and Codex subscriptions
 
 If Claude Code or Codex is installed on this machine, you can choose it as the model for any agent or arbiter. Calls then run through that tool and bill your Claude or ChatGPT subscription, with no gateway key needed.
 
-The model picker lists each installed tool first, by name. A new table starts with the installed tools as its agents, so with both installed you get Claude Code and Codex, and a new arbiter starts on Claude Code when it is installed. Without a gateway key, these tools are the only models in the list.
+The model picker lists each installed tool first, by name. A new table starts with the installed tools as its agents, so with both installed you get Claude Code and Codex, and a new arbiter starts on Claude Code when it is installed. Without any API key, these tools are the only models in the list.
 
 When you pick a tool, a second dropdown picks the model the tool runs with. Claude Code offers Fable, Opus, Sonnet and Haiku, and Codex offers the current OpenAI models plus the one set in `~/.codex/config.toml`. "Default" keeps the tool's own choice, so it answers with the same model it uses when you run it yourself. For Claude Code, the default reads "default model" until its first reply on the default, which names the model in use.
 
 Nothing runs until you send a message or press Next round. Each call starts the tool once in a new, empty temporary folder, so it cannot read or change your project, and that folder is deleted afterwards. With browsing on, Claude Code may use only web search and page fetching, and Codex may use only web search. With browsing off, neither has any tools.
 
-Consortium looks for `claude` and `codex` on your PATH and in the usual install folders, and for Codex also inside the Codex desktop app. If a tool lives somewhere else, set `CONSORTIUM_CLAUDE_BIN` or `CONSORTIUM_CODEX_BIN` in `.env.local` to its full path. The tool must already be signed in, which you can check by running it once in a terminal.
+Consortium looks for `claude` and `codex` on your PATH and in the usual install folders, and for Codex also inside the Codex desktop app. If a tool lives somewhere else, enter its full path in Settings, or set `CONSORTIUM_CLAUDE_BIN` or `CONSORTIUM_CODEX_BIN` in `.env.local`. A path in Settings wins over the environment variable. The tool must already be signed in, which you can check by running it once in a terminal.
 
 ## Checks
 
@@ -60,11 +70,11 @@ npm run build
 - `docs/design/round-by-round.html` holds the design, which the app follows for layout and copy.
 - `lib/types.ts` is the shared data model.
 - `lib/engine/` holds the table store, the prompts the models read, and the markdown export.
-- `lib/server/` and `app/api/` call the models through the AI Gateway, or through Claude Code and Codex in `lib/server/cli.ts`, with the sample replies in `lib/server/mock.ts`.
+- `lib/server/` and `app/api/` call the models through the AI Gateway or a provider's API (`lib/server/providers.ts`), or through Claude Code and Codex in `lib/server/cli.ts`, with the sample replies in `lib/server/mock.ts`. `lib/server/settings.ts` reads and writes the settings file.
 - `components/` and `lib/ui/` hold the interface.
 
 Tables are saved in your browser's local storage.
 
 ## Local use only
 
-This version is meant to run on your own machine. The model route has no sign-in, so anyone who can reach a deployed copy could spend your gateway credit or your Claude and ChatGPT subscription usage. The page-reading tool can also reach addresses on your local network, which is useful for reviewing local and staging sites. Do not deploy it publicly without adding authentication first.
+This version is meant to run on your own machine. The routes have no sign-in, so anyone who can reach a deployed copy could read your saved API keys, spend your gateway or provider credit, or use your Claude and ChatGPT subscriptions. The page-reading tool can also reach addresses on your local network, which is useful for reviewing local and staging sites. Do not deploy it publicly without adding authentication first.

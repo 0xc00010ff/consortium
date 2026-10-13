@@ -172,7 +172,7 @@ describe("streamSpeakEvents", () => {
     expect(events).toEqual([
       {
         type: "error",
-        message: "The AI Gateway did not accept the API key. Check AI_GATEWAY_API_KEY in .env.local, then restart the server.",
+        message: "The AI Gateway did not accept the API key. Check the gateway key in Settings.",
       },
     ]);
   });

@@ -1,26 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliTool } from "./cliTools";
 import { clearModelsCache, codexChoices, getModelsResponse, MOCK_MODELS } from "./models";
+import { isolateSettings, removeSettingsDirs } from "./settingsHome.testkit";
 
 // The gateway list is replaced, so the test with a key never reaches the network.
-vi.mock("ai", async (importOriginal) => {
-  const original = await importOriginal<typeof import("ai")>();
-  return {
-    ...original,
-    gateway: {
-      ...original.gateway,
-      getAvailableModels: async () => ({
+vi.mock("./gatewayClient", () => ({
+  gatewayProvider: () => ({
+    getAvailableModels: async () => ({
         models: [
           { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", modelType: "language" },
           { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", modelType: "language" },
           { id: "openai/gpt-7-sol", name: "GPT-7 Sol", modelType: "language" },
           { id: "openai/gpt-7-astra", name: "GPT-7 Astra", modelType: "language" },
-          { id: "openai/gpt-5.5", name: "GPT 5.5", modelType: "language" },
-        ],
-      }),
-    },
-  };
-});
+        { id: "openai/gpt-5.5", name: "GPT 5.5", modelType: "language" },
+      ],
+    }),
+  }),
+}));
 
 const saved = { ...process.env };
 const claude: CliTool = { id: "cli/claude-code", bin: "/x/claude", configuredModel: "claude-sonnet-4-5-20250929" };
@@ -48,6 +44,7 @@ const claudeInfo = {
 const codexInfo = { id: "cli/codex", name: "Codex", maker: "openai", defaultModel: "gpt-6-astra", toolModels: BUILT_IN_CODEX };
 
 beforeEach(() => {
+  isolateSettings();
   clearModelsCache();
   vi.stubGlobal("fetch", async () => {
     throw new Error("no network in tests");
@@ -56,6 +53,7 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = { ...saved };
+  removeSettingsDirs();
   vi.unstubAllGlobals();
   clearModelsCache();
 });
@@ -150,5 +148,70 @@ describe("the Codex model choices", () => {
   it("falls back to the built-in OpenAI models when the list has none", () => {
     expect(codexChoices([])).toEqual(BUILT_IN_CODEX);
     expect(codexChoices(MOCK_MODELS)).toEqual(BUILT_IN_CODEX);
+  });
+});
+
+describe("the model list with provider keys only", () => {
+  const PUBLIC_LIST = {
+    data: [
+      { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", type: "language" },
+      { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", type: "language" },
+      { id: "openai/gpt-7-sol", name: "GPT-7 Sol", type: "language" },
+      { id: "openai/gpt-7-astra", name: "GPT-7 Astra", type: "language" },
+      { id: "google/gemini-3.8-flash", name: "Gemini 3.8 Flash", type: "language" },
+      { id: "spacexai/grok-4.7", name: "Grok 4.7", type: "language" },
+    ],
+  };
+  const anthropicOnly = {
+    gateway: null,
+    anthropic: { value: "sk-ant-test", source: "settings" as const },
+    openai: null,
+    google: null,
+    xai: null,
+  };
+
+  beforeEach(() => {
+    delete process.env.CONSORTIUM_MOCK;
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify(PUBLIC_LIST), { status: 200 }));
+  });
+
+  it("lists only the makers with a key, from the public list", async () => {
+    const body = await getModelsResponse({ tools: [], keys: anthropicOnly });
+    expect(body).toEqual({
+      mock: false,
+      models: [
+        { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", maker: "anthropic" },
+        { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", maker: "anthropic" },
+      ],
+      defaults: { seats: ["anthropic/claude-sonnet-5.5"], arbiter: "anthropic/claude-opus-5.5" },
+    });
+  });
+
+  it("reads the keys from the settings file when none are passed", async () => {
+    process.env.XAI_API_KEY = "xai-test-not-used";
+    const body = await getModelsResponse({ tools: [] });
+    expect(body.models.map((m) => m.id)).toEqual(["spacexai/grok-4.7"]);
+    expect(body.defaults).toEqual({ seats: ["spacexai/grok-4.7"], arbiter: "spacexai/grok-4.7" });
+  });
+
+  it("keeps the tools first and as the default agents, and gives Codex the full OpenAI list", async () => {
+    const body = await getModelsResponse({ tools: [claude, codex], keys: anthropicOnly });
+    expect(body.models.map((m) => m.id)).toEqual([
+      "cli/claude-code",
+      "cli/codex",
+      "anthropic/claude-opus-5.5",
+      "anthropic/claude-sonnet-5.5",
+    ]);
+    expect(body.models[1].toolModels?.map((m) => m.id)).toEqual(["gpt-7-astra", "gpt-7-sol", "gpt-6-astra"]);
+    expect(body.defaults).toEqual({ seats: ["cli/claude-code", "cli/codex"], arbiter: "cli/claude-code" });
+  });
+
+  it("falls back to the built-in list for those makers when the public list cannot be read", async () => {
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("no network in tests");
+    });
+    const body = await getModelsResponse({ tools: [], keys: anthropicOnly });
+    expect(body.mock).toBe(false);
+    expect(body.models).toEqual(MOCK_MODELS.filter((m) => m.maker === "anthropic"));
   });
 });

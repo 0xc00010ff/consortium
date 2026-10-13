@@ -11,6 +11,10 @@
     "dev:mock": "CONSORTIUM_MOCK=1 next dev"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.79",
+    "@ai-sdk/google": "^4.0.94",
+    "@ai-sdk/openai": "^4.0.92",
+    "@ai-sdk/xai": "^5.0.21",
     "ai": "^7.0.118",
     "next": "^16.4.0",
     "react": "19.2.8",

@@ -1,12 +1,13 @@
-// Browsing tools for seats with browsing on: the gateway web search, and a
-// local page reader. The page reader runs on this server, so it can reach
+// Browsing tools for seats with browsing on: the gateway web search, which
+// needs a gateway key, and a local page reader. The page reader runs on this server, so it can reach
 // localhost, private network addresses and staging sites. It refuses
 // link-local addresses (169.254.0.0/16 and fe80::/10), where cloud metadata
 // services live, including after redirects.
 
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { gateway, tool, type ToolSet } from "ai";
+import { tool, type ToolSet } from "ai";
+import { gatewayProvider } from "./gatewayClient";
 import { z } from "zod";
 
 export const READ_PAGE_LIMIT = 8000;
@@ -36,12 +37,19 @@ export const readPageTool = tool({
   execute: async ({ url }, { abortSignal }) => readPage(url, abortSignal),
 });
 
-export function browsingTools(): ToolSet {
+// Without a gateway key there is no web search, only the page reader.
+export function browsingTools(gatewayKey: string | null): ToolSet {
+  if (!gatewayKey) return { read_page: readPageTool };
   return {
-    web_search: gateway.tools.parallelSearch({ mode: "agentic", maxResults: 5 }),
+    web_search: gatewayProvider(gatewayKey).tools.parallelSearch({ mode: "agentic", maxResults: 5 }),
     read_page: readPageTool,
   };
 }
+
+// Added to the instructions when browsing is on but web search is not
+// offered, since the table's instructions mention both tools.
+export const NO_WEB_SEARCH_NOTE =
+  "Web search is not available for this reply, so use read_page only for pages whose URL you already know.";
 
 // ---------- Address checks ----------
 

@@ -18,6 +18,7 @@ export function Sidebar({
   onRename,
   onDelete,
   onHide,
+  onSettings,
 }: {
   recent: TableSummary[];
   currentId: string | null;
@@ -28,6 +29,7 @@ export function Sidebar({
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onHide: () => void;
+  onSettings: () => void;
 }) {
   const now = useNow();
   const navRef = useRef<HTMLElement>(null);
@@ -142,6 +144,11 @@ export function Sidebar({
           })}
         </ul>
       </nav>
+
+      <button type="button" className="side-btn" onClick={onSettings}>
+        <Icon name="settings" />
+        Settings
+      </button>
 
       {mock ? (
         <p className="side-foot">
