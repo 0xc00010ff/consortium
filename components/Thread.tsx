@@ -248,7 +248,7 @@ function RoundView({
 function HostMessage({ round }: { round: Round }) {
   const { text, attachments } = round.host;
   return (
-    <article className="msg">
+    <article className="msg host">
       <HostAvatar />
       <div className="msg-main">
         <div className="msg-h">
@@ -363,7 +363,7 @@ function ReplyView({
   return (
     <article
       ref={articleRef}
-      className={cx("msg reply", highlighted && "hl")}
+      className={cx("msg reply", kind === "arbiter" && "arbiter", highlighted && "hl")}
       aria-busy={reply.status === "streaming" || undefined}
     >
       {avatar}
