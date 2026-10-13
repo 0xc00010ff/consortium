@@ -5,7 +5,7 @@ import type { Attachment, ModelsResponse, Table, TableStore } from "@/lib/types"
 import { downloadText, exportFilename } from "@/lib/ui/download";
 import { confirm } from "@/lib/ui/confirm";
 import { tableToMarkdown } from "@/lib/ui/engine";
-import { type Drawer, FOCUSABLE } from "@/lib/ui/useCompact";
+import { type Drawer, FOCUSABLE } from "@/lib/ui/layout";
 import { useStickToBottom } from "@/lib/ui/useStickToBottom";
 import { useTable } from "@/lib/ui/useStore";
 import { isBusy, latestReply, participantIn, privateBusyParticipant, subtitle, UNTITLED } from "@/lib/ui/view";
@@ -14,7 +14,7 @@ import { Icon } from "./Icon";
 import { ParticipantsPanel } from "./ParticipantsPanel";
 import { PrivatePanel } from "./PrivatePanel";
 import { Thread } from "./Thread";
-import { Banner, IconButton } from "./ui";
+import { Banner, IconButton, type Resize } from "./ui";
 
 export function TableScreen({
   store,
@@ -23,7 +23,9 @@ export function TableScreen({
   setParticipantsOpen,
   sidebarHidden,
   onShowSidebar,
-  compact,
+  sideDrawer,
+  panelDrawer,
+  panelResize,
   drawer,
   setDrawer,
   onNew,
@@ -36,7 +38,9 @@ export function TableScreen({
   setParticipantsOpen: (open: boolean) => void;
   sidebarHidden: boolean;
   onShowSidebar: () => void;
-  compact: boolean; // the narrow layout, where the side panels open as drawers
+  sideDrawer: boolean; // the sidebar opens over the conversation
+  panelDrawer: boolean; // the right panel opens over the conversation
+  panelResize?: Resize; // present while the right panel sits beside the conversation
   drawer: Drawer;
   setDrawer: (drawer: Drawer) => void;
   onNew: () => void;
@@ -54,10 +58,10 @@ export function TableScreen({
   const [draft, setDraft] = useState<{ n: number; text: string; attachments: Attachment[] } | null>(null);
   const stick = useStickToBottom();
 
-  // In the compact layout the right panel is a drawer, and a private
-  // conversation stays open only while that drawer is open.
-  const panelOpen = compact ? drawer === "panel" : participantsOpen;
-  if (compact && !panelOpen && openId !== null) setOpenId(null);
+  // When the right panel is a drawer, a private conversation stays open only
+  // while that drawer is open.
+  const panelOpen = panelDrawer ? drawer === "panel" : participantsOpen;
+  if (panelDrawer && !panelOpen && openId !== null) setOpenId(null);
 
   // When the panel drawer opens, focus moves into it. When it closes, focus
   // goes back to the participants button in the header.
@@ -131,20 +135,20 @@ export function TableScreen({
 
   function openPrivate(id: string) {
     setOpenId(id);
-    if (compact) setDrawer("panel");
+    if (panelDrawer) setDrawer("panel");
   }
 
   function closePrivate() {
     setOpenId(null);
-    if (compact) setDrawer(null);
+    if (panelDrawer) setDrawer(null);
   }
 
   function toggleParticipants() {
     if (open) {
       setOpenId(null);
-      if (compact) setDrawer("panel");
+      if (panelDrawer) setDrawer("panel");
       else setParticipantsOpen(true);
-    } else if (compact) {
+    } else if (panelDrawer) {
       setDrawer(drawer === "panel" ? null : "panel");
     } else {
       setParticipantsOpen(!participantsOpen);
@@ -156,8 +160,8 @@ export function TableScreen({
       <title>{`${table.title || UNTITLED} · Consortium`}</title>
       <main className="main">
         <header className="head">
-          {compact || sidebarHidden ? <IconButton icon="sidebar" label="Show the sidebar" onClick={onShowSidebar} /> : null}
-          {!compact && sidebarHidden ? <IconButton icon="plus" label="New conversation" onClick={onNew} /> : null}
+          {sideDrawer || sidebarHidden ? <IconButton icon="sidebar" label="Show the sidebar" onClick={onShowSidebar} /> : null}
+          {!sideDrawer && sidebarHidden ? <IconButton icon="plus" label="New conversation" onClick={onNew} /> : null}
           <TitleBlock table={table} busy={busy} onRename={(title) => store.edit({ title })} />
           <div className="head-acts">
             <button
@@ -211,6 +215,7 @@ export function TableScreen({
           onSend={sendPrivate}
           onStop={() => store.stop()}
           onClose={closePrivate}
+          resize={panelResize}
         />
       ) : panelOpen ? (
         <ParticipantsPanel
@@ -218,7 +223,8 @@ export function TableScreen({
           data={data}
           disabled={busy}
           onEdit={(edit) => store.edit(edit)}
-          onClose={() => (compact ? setDrawer(null) : setParticipantsOpen(false))}
+          onClose={() => (panelDrawer ? setDrawer(null) : setParticipantsOpen(false))}
+          resize={panelResize}
         />
       ) : null}
     </>

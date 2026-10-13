@@ -1,6 +1,15 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import type { Attachment, SeatColor, ToolActivity } from "@/lib/types";
 import { displayUrl } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
@@ -126,6 +135,91 @@ export function Toggle<T extends string>({
         </button>
       ))}
     </div>
+  );
+}
+
+// ---------- resizing ----------
+
+// A panel's width and the limits it can be dragged between.
+export interface Resize {
+  value: number;
+  min: number;
+  max: number;
+  defaultValue: number;
+  onChange: (next: number) => void;
+}
+
+const RESIZE_STEP = 16;
+
+// The draggable inner edge of a side panel. "end" is the right edge of the
+// sidebar, so dragging right makes it wider. "start" is the left edge of the
+// right panel, so dragging left makes it wider. The arrow keys move the edge
+// the same way, Home and End go to the limits, and a double-click goes back
+// to the default width.
+export function ResizeHandle({ edge, label, resize }: { edge: "start" | "end"; label: string; resize: Resize }) {
+  const { value, min, max, defaultValue, onChange } = resize;
+  const [dragging, setDragging] = useState(false);
+  const start = useRef<{ x: number; width: number } | null>(null);
+  const clamp = (n: number) => Math.min(max, Math.max(min, Math.round(n)));
+
+  // While dragging, the page shows the resize cursor and does not select text.
+  useEffect(() => {
+    if (!dragging) return;
+    document.body.classList.add("resizing");
+    return () => document.body.classList.remove("resizing");
+  }, [dragging]);
+
+  function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    start.current = { x: e.clientX, width: value };
+    setDragging(true);
+  }
+
+  function onPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const s = start.current;
+    if (!s) return;
+    const dx = e.clientX - s.x;
+    const next = clamp(s.width + (edge === "end" ? dx : -dx));
+    if (next !== value) onChange(next);
+  }
+
+  function stop() {
+    start.current = null;
+    setDragging(false);
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    let next: number | null = null;
+    const grow = edge === "end" ? 1 : -1; // which way ArrowRight moves the width
+    if (e.key === "ArrowRight") next = value + RESIZE_STEP * grow;
+    else if (e.key === "ArrowLeft") next = value - RESIZE_STEP * grow;
+    else if (e.key === "Home") next = min;
+    else if (e.key === "End") next = max;
+    if (next === null) return;
+    e.preventDefault();
+    onChange(clamp(next));
+  }
+
+  return (
+    <div
+      className={cx("rsz", edge, dragging && "active")}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-valuenow={value}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      tabIndex={0}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={stop}
+      onPointerCancel={stop}
+      onLostPointerCapture={stop}
+      onKeyDown={onKeyDown}
+      onDoubleClick={() => onChange(clamp(defaultValue))}
+    />
   );
 }
 

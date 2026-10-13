@@ -1,5 +1,6 @@
-// The settings modal's link to the server, and the two settings this browser
-// keeps for itself: the theme and the default setup for new tables.
+// The settings modal's link to the server, and the settings this browser
+// keeps for itself: the theme, the default setup for new tables, and the
+// widths of the sidebar and the right panel.
 //
 // This file has no React imports, so the root layout can read THEME_KEY.
 
@@ -82,5 +83,37 @@ export function setDefaultPreset(id: string) {
     else window.localStorage.removeItem(DEFAULT_PRESET_KEY);
   } catch {
     // Storage is unavailable. New tables keep the server's default.
+  }
+}
+
+// ---------- the widths of the side panels ----------
+
+// The widths, in pixels, that each side panel can be dragged to. lib/ui/layout
+// exports these too, next to the rules that use them.
+export const SIDE = { min: 200, max: 420, default: 256 };
+export const PANEL = { min: 320, max: 600, default: 380 };
+
+const WIDTHS = {
+  side: { key: "consortium.sidebarWidth", ...SIDE },
+  panel: { key: "consortium.panelWidth", ...PANEL },
+};
+
+// The saved width, kept within that panel's limits, or the default when none is saved.
+export function readWidth(which: "side" | "panel"): number {
+  const w = WIDTHS[which];
+  try {
+    const stored = window.localStorage.getItem(w.key);
+    const n = stored === null ? NaN : Number(stored);
+    return Number.isFinite(n) ? Math.min(w.max, Math.max(w.min, Math.round(n))) : w.default;
+  } catch {
+    return w.default;
+  }
+}
+
+export function saveWidth(which: "side" | "panel", value: number) {
+  try {
+    window.localStorage.setItem(WIDTHS[which].key, String(Math.round(value)));
+  } catch {
+    // Storage is unavailable. The width still applies until the page closes.
   }
 }

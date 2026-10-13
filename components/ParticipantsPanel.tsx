@@ -32,7 +32,7 @@ import {
 } from "@/lib/ui/view";
 import { applyPreset, builtinPresets, deletePreset, savePreset, usePresets } from "@/lib/ui/presets";
 import { Icon } from "./Icon";
-import { ArbiterAvatar, cx, IconButton, Menu, SeatAvatar, Switch, Toggle } from "./ui";
+import { ArbiterAvatar, cx, IconButton, Menu, type Resize, ResizeHandle, SeatAvatar, Switch, Toggle } from "./ui";
 
 // Command line tools on the host's own subscriptions have ids like "cli/codex".
 const isTool = (m: ModelInfo) => m.id.startsWith("cli/");
@@ -55,12 +55,14 @@ export function ParticipantsPanel({
   disabled,
   onEdit,
   onClose,
+  resize,
 }: {
   table: Table;
   data: ModelsResponse | null;
   disabled: boolean;
   onEdit: (edit: TableEdit) => void;
   onClose: () => void;
+  resize?: Resize; // present while the panel sits beside the conversation
 }) {
   const models = data?.models ?? [];
   const systemId = useId();
@@ -108,6 +110,7 @@ export function ParticipantsPanel({
 
   return (
     <aside className="panel" aria-label="Participants">
+      {resize ? <ResizeHandle edge="start" label="Resize the panel" resize={resize} /> : null}
       <div className="panel-head">
         <h2>Participants</h2>
         <IconButton icon="x" label="Close participants" onClick={onClose} />

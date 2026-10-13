@@ -9,7 +9,7 @@ import { latestReply, type Participant } from "@/lib/ui/view";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { ReplyError } from "./Thread";
-import { ArbiterAvatar, cx, HostAvatar, IconButton, SeatAvatar, ToolChips } from "./ui";
+import { ArbiterAvatar, cx, HostAvatar, IconButton, type Resize, ResizeHandle, SeatAvatar, ToolChips } from "./ui";
 
 export function PrivatePanel({
   table,
@@ -19,6 +19,7 @@ export function PrivatePanel({
   onSend,
   onStop,
   onClose,
+  resize,
 }: {
   table: Table;
   participant: Participant; // the agent or arbiter, as it is at the table now
@@ -27,6 +28,7 @@ export function PrivatePanel({
   onSend: (text: string) => boolean; // false when the store did not start the reply
   onStop: () => void;
   onClose: () => void;
+  resize?: Resize; // present while the panel sits beside the conversation
 }) {
   const [text, setText] = useState("");
   const { scrollRef, contentRef } = useStickToBottom();
@@ -49,6 +51,7 @@ export function PrivatePanel({
 
   return (
     <aside className="panel private" aria-label={`Private conversation with ${p.label}`}>
+      {resize ? <ResizeHandle edge="start" label="Resize the panel" resize={resize} /> : null}
       <div className="panel-head tall">
         <ParticipantAvatar participant={p} />
         <div className="panel-who">

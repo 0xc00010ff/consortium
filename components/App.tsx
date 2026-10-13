@@ -15,13 +15,14 @@ import {
   subscribeStores,
   tableLoad,
 } from "@/lib/ui/tables";
-import { type Drawer, FOCUSABLE, useCompact } from "@/lib/ui/useCompact";
+import { type Drawer, FOCUSABLE, layoutFor, MIN_MAIN, PANEL, SIDE, useViewportWidth } from "@/lib/ui/layout";
+import { readWidth, saveWidth } from "@/lib/ui/settings";
 import { useTable } from "@/lib/ui/useStore";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsModal } from "./SettingsModal";
 import { Sidebar } from "./Sidebar";
 import { TableScreen } from "./TableScreen";
-import { Banner, cx, IconButton } from "./ui";
+import { Banner, cx, IconButton, type Resize } from "./ui";
 
 // ---------- a small hash router ----------
 // A new table is "/". A saved table opens at "/#/table/<id>", so a reload
@@ -115,17 +116,59 @@ export default function App() {
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [participantsOpen, setParticipantsOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const compact = useCompact();
-  // The drawer open in the compact layout. Only one is open at a time.
+
+  // The widths the host dragged the sidebar and the right panel to. The app
+  // first renders on the client, once the hash is known, so reading storage
+  // here does not change what the server sent.
+  const [sideW, setSideW] = useState(() => (typeof window === "undefined" ? SIDE.default : readWidth("side")));
+  const [panelW, setPanelW] = useState(() => (typeof window === "undefined" ? PANEL.default : readWidth("panel")));
+  const changeSideW = useCallback((next: number) => {
+    setSideW(next);
+    saveWidth("side", next);
+  }, []);
+  const changePanelW = useCallback((next: number) => {
+    setPanelW(next);
+    saveWidth("panel", next);
+  }, []);
+
+  // The conversation keeps at least MIN_MAIN pixels. As the window narrows,
+  // the sidebar opens over the conversation first, then the right panel too.
+  const vw = useViewportWidth();
+  const layout = layoutFor(vw, sideW, panelW);
+  const sideDrawer = layout !== "wide";
+  const panelDrawer = layout === "narrow";
+  // The drawer open over the conversation. Only one is open at a time.
   const [drawer, setDrawer] = useState<Drawer>(null);
 
-  // Moving to another conversation, or leaving the compact layout, closes the
-  // drawer. This is done during render so the old drawer never shows.
-  const [drawerFor, setDrawerFor] = useState({ hash, compact });
-  if (drawerFor.hash !== hash || drawerFor.compact !== compact) {
-    setDrawerFor({ hash, compact });
+  // Moving to another conversation, or to another layout, closes the drawer.
+  // This is done during render so the old drawer never shows.
+  const [drawerFor, setDrawerFor] = useState({ hash, layout });
+  if (drawerFor.hash !== hash || drawerFor.layout !== layout) {
+    setDrawerFor({ hash, layout });
     setDrawer(null);
   }
+
+  // A panel beside the conversation can be dragged wider only as far as the
+  // conversation keeps MIN_MAIN pixels, so a drag never changes the layout.
+  const sideResize: Resize | undefined =
+    layout === "wide"
+      ? {
+          value: sideW,
+          min: SIDE.min,
+          max: Math.min(SIDE.max, vw - panelW - MIN_MAIN),
+          defaultValue: SIDE.default,
+          onChange: changeSideW,
+        }
+      : undefined;
+  const panelResize: Resize | undefined = !panelDrawer
+    ? {
+        value: panelW,
+        min: PANEL.min,
+        max: Math.min(PANEL.max, vw - (layout === "wide" ? sideW : 0) - MIN_MAIN),
+        defaultValue: PANEL.default,
+        onChange: changePanelW,
+      }
+    : undefined;
 
   // Escape closes the drawer. Menus, dialogs and text fields that use Escape
   // themselves call preventDefault, so those presses are left alone.
@@ -164,7 +207,7 @@ export default function App() {
 
   const newTable = useCallback(() => navigate(""), []);
   const closeDrawer = useCallback(() => setDrawer(null), []);
-  const showSidebar = compact ? () => setDrawer("side") : () => setSidebarHidden(false);
+  const showSidebar = sideDrawer ? () => setDrawer("side") : () => setSidebarHidden(false);
 
   const onStarted = useCallback((s: TableStore) => {
     if (window.location.hash.startsWith("#/preview")) return;
@@ -206,6 +249,9 @@ export default function App() {
     </>
   );
 
+  // The header leaves room on the left when the sidebar is not beside it.
+  const noSide = sideDrawer || sidebarHidden;
+
   let screen: React.ReactNode;
   if (store) {
     screen = (
@@ -217,7 +263,9 @@ export default function App() {
         setParticipantsOpen={setParticipantsOpen}
         sidebarHidden={sidebarHidden}
         onShowSidebar={showSidebar}
-        compact={compact}
+        sideDrawer={sideDrawer}
+        panelDrawer={panelDrawer}
+        panelResize={panelResize}
         drawer={drawer}
         setDrawer={setDrawer}
         onNew={newTable}
@@ -254,7 +302,7 @@ export default function App() {
       <main className="main">
         <title>Consortium</title>
         <header className="head">
-          {compact || sidebarHidden ? <IconButton icon="sidebar" label="Show the sidebar" onClick={showSidebar} /> : null}
+          {sideDrawer || sidebarHidden ? <IconButton icon="sidebar" label="Show the sidebar" onClick={showSidebar} /> : null}
         </header>
         {banners}
         <div className="center">
@@ -266,16 +314,21 @@ export default function App() {
   }
 
   return (
-    <div className={cx("app", sidebarHidden && "no-side")}>
-      {compact && drawer ? <div className="scrim" aria-hidden="true" onClick={closeDrawer} /> : null}
-      {(compact ? drawer === "side" : !sidebarHidden) ? (
+    <div
+      className={cx("app", noSide && "no-side", sideDrawer && "side-drawer", panelDrawer && "panel-drawer")}
+      style={{ "--side-w": `${sideW}px`, "--panel-w": `${panelW}px` } as React.CSSProperties}
+    >
+      {(drawer === "side" && sideDrawer) || (drawer === "panel" && panelDrawer) ? (
+        <div className="scrim" aria-hidden="true" onClick={closeDrawer} />
+      ) : null}
+      {(sideDrawer ? drawer === "side" : !sidebarHidden) ? (
         <SidebarFor
           store={store}
           preview={preview}
           recent={recent}
           mock={Boolean(data?.mock)}
           onNew={
-            compact
+            sideDrawer
               ? () => {
                   setDrawer(null);
                   newTable();
@@ -284,9 +337,10 @@ export default function App() {
           }
           onRename={renameTable}
           onDelete={onDelete}
-          onHide={compact ? closeDrawer : () => setSidebarHidden(true)}
-          onPick={compact ? closeDrawer : undefined}
+          onHide={sideDrawer ? closeDrawer : () => setSidebarHidden(true)}
+          onPick={sideDrawer ? closeDrawer : undefined}
           onSettings={() => setSettingsOpen(true)}
+          resize={sideResize}
         />
       ) : null}
       {screen}
@@ -312,6 +366,7 @@ function SidebarFor({
   onHide: () => void;
   onPick?: () => void;
   onSettings: () => void;
+  resize?: Resize;
 }) {
   if (!store) return <Sidebar currentId={null} currentTitle="" showCurrent={false} {...rest} />;
   return <SidebarWithTable store={store} preview={preview} {...rest} />;
@@ -333,6 +388,7 @@ function SidebarWithTable({
   onHide: () => void;
   onPick?: () => void;
   onSettings: () => void;
+  resize?: Resize;
 }) {
   const table = useTable(store);
   const saved = recent.some((t) => t.id === table.id);

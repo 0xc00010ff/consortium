@@ -8,7 +8,7 @@ import type { TableSummary } from "@/lib/ui/storage";
 import { useNow } from "@/lib/ui/useNow";
 import { UNTITLED } from "@/lib/ui/view";
 import { Icon, Mark } from "./Icon";
-import { cx, IconButton, Menu } from "./ui";
+import { cx, IconButton, Menu, type Resize, ResizeHandle } from "./ui";
 
 export function Sidebar({
   recent,
@@ -22,6 +22,7 @@ export function Sidebar({
   onHide,
   onPick,
   onSettings,
+  resize,
 }: {
   recent: TableSummary[];
   currentId: string | null;
@@ -34,6 +35,7 @@ export function Sidebar({
   onHide: () => void;
   onPick?: () => void; // a conversation row was chosen, including the one already open
   onSettings: () => void;
+  resize?: Resize; // present while the sidebar sits beside the conversation
 }) {
   const now = useNow();
   const navRef = useRef<HTMLElement>(null);
@@ -163,6 +165,7 @@ export function Sidebar({
           The app writes the replies itself.
         </p>
       ) : null}
+      {resize ? <ResizeHandle edge="end" label="Resize the sidebar" resize={resize} /> : null}
     </aside>
   );
 }
