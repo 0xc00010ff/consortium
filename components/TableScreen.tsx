@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Attachment, ModelsResponse, Table, TableStore } from "@/lib/types";
 import { downloadText, exportFilename } from "@/lib/ui/download";
 import { confirm } from "@/lib/ui/confirm";
 import { tableToMarkdown } from "@/lib/ui/engine";
+import { type Drawer, FOCUSABLE } from "@/lib/ui/useCompact";
 import { useStickToBottom } from "@/lib/ui/useStickToBottom";
 import { useTable } from "@/lib/ui/useStore";
 import { isBusy, latestReply, participantIn, privateBusyParticipant, subtitle, UNTITLED } from "@/lib/ui/view";
@@ -22,6 +23,9 @@ export function TableScreen({
   setParticipantsOpen,
   sidebarHidden,
   onShowSidebar,
+  compact,
+  drawer,
+  setDrawer,
   onNew,
   onStarted,
   banners,
@@ -32,6 +36,9 @@ export function TableScreen({
   setParticipantsOpen: (open: boolean) => void;
   sidebarHidden: boolean;
   onShowSidebar: () => void;
+  compact: boolean; // the narrow layout, where the side panels open as drawers
+  drawer: Drawer;
+  setDrawer: (drawer: Drawer) => void;
   onNew: () => void;
   onStarted: (store: TableStore) => void; // a round has started
   banners?: React.ReactNode;
@@ -46,6 +53,24 @@ export function TableScreen({
   // every rewind, so the composer starts again with that message.
   const [draft, setDraft] = useState<{ n: number; text: string; attachments: Attachment[] } | null>(null);
   const stick = useStickToBottom();
+
+  // In the compact layout the right panel is a drawer, and a private
+  // conversation stays open only while that drawer is open.
+  const panelOpen = compact ? drawer === "panel" : participantsOpen;
+  if (compact && !panelOpen && openId !== null) setOpenId(null);
+
+  // When the panel drawer opens, focus moves into it. When it closes, focus
+  // goes back to the participants button in the header.
+  const lastDrawer = useRef<Drawer>(drawer);
+  useEffect(() => {
+    const was = lastDrawer.current;
+    lastDrawer.current = drawer;
+    if (drawer === "panel" && was !== "panel") {
+      document.querySelector<HTMLElement>(`.panel :is(${FOCUSABLE})`)?.focus();
+    } else if (was === "panel" && drawer !== "panel") {
+      document.querySelector<HTMLElement>(".head-acts .ibtn")?.focus();
+    }
+  }, [drawer]);
 
   // An agent or arbiter removed from the table takes its private conversation with it.
   const open = openId ? participantIn(undefined, table, openId) : undefined;
@@ -102,19 +127,37 @@ export function TableScreen({
     downloadText(exportFilename(table.title, table.createdAt), tableToMarkdown(table));
   }
 
-  const participantsShown = !open && participantsOpen;
+  const participantsShown = !open && panelOpen;
+
+  function openPrivate(id: string) {
+    setOpenId(id);
+    if (compact) setDrawer("panel");
+  }
+
+  function closePrivate() {
+    setOpenId(null);
+    if (compact) setDrawer(null);
+  }
+
+  function toggleParticipants() {
+    if (open) {
+      setOpenId(null);
+      if (compact) setDrawer("panel");
+      else setParticipantsOpen(true);
+    } else if (compact) {
+      setDrawer(drawer === "panel" ? null : "panel");
+    } else {
+      setParticipantsOpen(!participantsOpen);
+    }
+  }
 
   return (
     <>
       <title>{`${table.title || UNTITLED} · Consortium`}</title>
       <main className="main">
         <header className="head">
-          {sidebarHidden ? (
-            <>
-              <IconButton icon="sidebar" label="Show the sidebar" onClick={onShowSidebar} />
-              <IconButton icon="plus" label="New conversation" onClick={onNew} />
-            </>
-          ) : null}
+          {compact || sidebarHidden ? <IconButton icon="sidebar" label="Show the sidebar" onClick={onShowSidebar} /> : null}
+          {!compact && sidebarHidden ? <IconButton icon="plus" label="New conversation" onClick={onNew} /> : null}
           <TitleBlock table={table} busy={busy} onRename={(title) => store.edit({ title })} />
           <div className="head-acts">
             <button
@@ -123,22 +166,16 @@ export function TableScreen({
               onClick={exportTable}
               disabled={first}
               title={first ? "Available after the first round" : "Download as markdown"}
+              aria-label="Export"
             >
               <Icon name="download" />
-              Export
+              <span className="btn-label">Export</span>
             </button>
             <IconButton
               icon="users"
               label={participantsShown ? "Hide participants" : "Show participants"}
               pressed={participantsShown}
-              onClick={() => {
-                if (open) {
-                  setOpenId(null);
-                  setParticipantsOpen(true);
-                } else {
-                  setParticipantsOpen(!participantsOpen);
-                }
-              }}
+              onClick={toggleParticipants}
             />
           </div>
         </header>
@@ -148,7 +185,7 @@ export function TableScreen({
           table={table}
           openPrivateId={open?.id ?? null}
           highlightReplyId={open ? (latestReply(table, open.id)?.reply.id ?? null) : null}
-          onOpenPrivate={setOpenId}
+          onOpenPrivate={openPrivate}
           onVote={(replyId, delta) => store.vote(replyId, delta)}
           onRewind={rewind}
           stick={stick}
@@ -173,15 +210,15 @@ export function TableScreen({
           replying={privateBusy === open.id}
           onSend={sendPrivate}
           onStop={() => store.stop()}
-          onClose={() => setOpenId(null)}
+          onClose={closePrivate}
         />
-      ) : participantsOpen ? (
+      ) : panelOpen ? (
         <ParticipantsPanel
           table={table}
           data={data}
           disabled={busy}
           onEdit={(edit) => store.edit(edit)}
-          onClose={() => setParticipantsOpen(false)}
+          onClose={() => (compact ? setDrawer(null) : setParticipantsOpen(false))}
         />
       ) : null}
     </>

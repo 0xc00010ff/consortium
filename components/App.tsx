@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ModelsResponse, TableStore } from "@/lib/types";
 import { FIXTURE_MODELS, isFixtureName, previewTable } from "@/lib/ui/fixtures";
 import { indexStore, storageWarningStore } from "@/lib/ui/storage";
@@ -15,6 +15,7 @@ import {
   subscribeStores,
   tableLoad,
 } from "@/lib/ui/tables";
+import { type Drawer, FOCUSABLE, useCompact } from "@/lib/ui/useCompact";
 import { useTable } from "@/lib/ui/useStore";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsModal } from "./SettingsModal";
@@ -114,6 +115,41 @@ export default function App() {
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [participantsOpen, setParticipantsOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const compact = useCompact();
+  // The drawer open in the compact layout. Only one is open at a time.
+  const [drawer, setDrawer] = useState<Drawer>(null);
+
+  // Moving to another conversation, or leaving the compact layout, closes the
+  // drawer. This is done during render so the old drawer never shows.
+  const [drawerFor, setDrawerFor] = useState({ hash, compact });
+  if (drawerFor.hash !== hash || drawerFor.compact !== compact) {
+    setDrawerFor({ hash, compact });
+    setDrawer(null);
+  }
+
+  // Escape closes the drawer. Menus, dialogs and text fields that use Escape
+  // themselves call preventDefault, so those presses are left alone.
+  useEffect(() => {
+    if (!drawer) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && !e.defaultPrevented) setDrawer(null);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [drawer]);
+
+  // When the sidebar drawer opens, focus moves into it. When it closes, focus
+  // goes back to the header button that opens it, if that button is still there.
+  const lastDrawer = useRef<Drawer>(null);
+  useEffect(() => {
+    const was = lastDrawer.current;
+    lastDrawer.current = drawer;
+    if (drawer === "side" && was !== "side") {
+      document.querySelector<HTMLElement>(`.sidebar :is(${FOCUSABLE})`)?.focus();
+    } else if (was === "side" && drawer !== "side") {
+      document.querySelector<HTMLElement>('.head .ibtn[aria-label="Show the sidebar"]')?.focus();
+    }
+  }, [drawer]);
 
   const preview = route?.view === "preview";
   const data = preview ? FIXTURE_MODELS : models.data;
@@ -127,6 +163,8 @@ export default function App() {
   else if (route && models.data) store = getDraft(models.data);
 
   const newTable = useCallback(() => navigate(""), []);
+  const closeDrawer = useCallback(() => setDrawer(null), []);
+  const showSidebar = compact ? () => setDrawer("side") : () => setSidebarHidden(false);
 
   const onStarted = useCallback((s: TableStore) => {
     if (window.location.hash.startsWith("#/preview")) return;
@@ -178,7 +216,10 @@ export default function App() {
         participantsOpen={participantsOpen}
         setParticipantsOpen={setParticipantsOpen}
         sidebarHidden={sidebarHidden}
-        onShowSidebar={() => setSidebarHidden(false)}
+        onShowSidebar={showSidebar}
+        compact={compact}
+        drawer={drawer}
+        setDrawer={setDrawer}
         onNew={newTable}
         onStarted={onStarted}
         banners={banners}
@@ -213,7 +254,7 @@ export default function App() {
       <main className="main">
         <title>Consortium</title>
         <header className="head">
-          {sidebarHidden ? <IconButton icon="sidebar" label="Show the sidebar" onClick={() => setSidebarHidden(false)} /> : null}
+          {compact || sidebarHidden ? <IconButton icon="sidebar" label="Show the sidebar" onClick={showSidebar} /> : null}
         </header>
         {banners}
         <div className="center">
@@ -226,19 +267,28 @@ export default function App() {
 
   return (
     <div className={cx("app", sidebarHidden && "no-side")}>
-      {sidebarHidden ? null : (
+      {compact && drawer ? <div className="scrim" aria-hidden="true" onClick={closeDrawer} /> : null}
+      {(compact ? drawer === "side" : !sidebarHidden) ? (
         <SidebarFor
           store={store}
           preview={preview}
           recent={recent}
           mock={Boolean(data?.mock)}
-          onNew={newTable}
+          onNew={
+            compact
+              ? () => {
+                  setDrawer(null);
+                  newTable();
+                }
+              : newTable
+          }
           onRename={renameTable}
           onDelete={onDelete}
-          onHide={() => setSidebarHidden(true)}
+          onHide={compact ? closeDrawer : () => setSidebarHidden(true)}
+          onPick={compact ? closeDrawer : undefined}
           onSettings={() => setSettingsOpen(true)}
         />
-      )}
+      ) : null}
       {screen}
       {settingsOpen ? <SettingsModal data={data} onClose={() => setSettingsOpen(false)} /> : null}
       <ConfirmDialog />
@@ -260,6 +310,7 @@ function SidebarFor({
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onHide: () => void;
+  onPick?: () => void;
   onSettings: () => void;
 }) {
   if (!store) return <Sidebar currentId={null} currentTitle="" showCurrent={false} {...rest} />;
@@ -280,6 +331,7 @@ function SidebarWithTable({
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onHide: () => void;
+  onPick?: () => void;
   onSettings: () => void;
 }) {
   const table = useTable(store);

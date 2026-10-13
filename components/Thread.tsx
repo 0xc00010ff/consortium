@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { Reply, Round, Table } from "@/lib/types";
 import { copyToClipboard } from "@/lib/ui/download";
-import { plural, replyStats } from "@/lib/ui/format";
+import { formatDuration, plural, replyStats } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
 import type { StickToBottom } from "@/lib/ui/useStickToBottom";
 import {
@@ -357,6 +357,10 @@ function ReplyView({
   const canExpand = overflows || expanded;
   const canCopy = Boolean(reply.text) && reply.status !== "streaming";
   const stats = reply.status === "done" || reply.status === "error" ? replyStats(reply.durationMs, reply.usage) : "";
+  // The duration and the token counts are separate, so a phone can show the
+  // duration alone.
+  const duration = stats ? formatDuration(reply.durationMs) : "";
+  const usage = stats ? replyStats(undefined, reply.usage) : "";
   const usageTitle =
     [
       reply.usage?.inputTokens !== undefined && `${reply.usage.inputTokens.toLocaleString("en-US")} input tokens`,
@@ -434,7 +438,8 @@ function ReplyView({
           <span className="tbar-space" />
           {stats ? (
             <span className="tbar-stats mono" title={usageTitle}>
-              {stats}
+              {duration}
+              {usage ? <span className="tbar-usage">{duration ? ` · ${usage}` : usage}</span> : null}
             </span>
           ) : null}
           {reply.status === "done" || reply.status === "error" ? (

@@ -20,6 +20,7 @@ export function Sidebar({
   onRename,
   onDelete,
   onHide,
+  onPick,
   onSettings,
 }: {
   recent: TableSummary[];
@@ -31,6 +32,7 @@ export function Sidebar({
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onHide: () => void;
+  onPick?: () => void; // a conversation row was chosen, including the one already open
   onSettings: () => void;
 }) {
   const now = useNow();
@@ -105,7 +107,7 @@ export function Sidebar({
             }
             return (
               <li key={t.id} className={cx("row", on && "on", menuOpen && "menu-open")} data-row={t.id}>
-                <a className="row-link" href={`#/table/${t.id}`} aria-current={on ? "page" : undefined}>
+                <a className="row-link" href={`#/table/${t.id}`} aria-current={on ? "page" : undefined} onClick={onPick}>
                   <span className="row-title">{title}</span>
                   {on ? null : <span className="row-time">{shortTime(t.updatedAt, now)}</span>}
                 </a>

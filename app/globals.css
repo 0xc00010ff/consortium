@@ -24,6 +24,8 @@
   /* The host's bubble and the arbiters' panel, both a step off the page. */
   --bubble: #e9eef6;
   --arbiter-bg: #f4f4f4;
+  /* The dimmed layer behind a side panel on a small screen. */
+  --scrim: rgba(0, 0, 0, 0.32);
 
   /* Seat colors, muted and readable with white letters on both themes. */
   --seat-a: #3e66d0;
@@ -62,6 +64,7 @@
     --switch-off: #3d3d3d;
     --bubble: #2a3140;
     --arbiter-bg: #212121;
+    --scrim: rgba(0, 0, 0, 0.5);
   }
 }
 
@@ -87,6 +90,7 @@
   --switch-off: #3d3d3d;
   --bubble: #2a3140;
   --arbiter-bg: #212121;
+  --scrim: rgba(0, 0, 0, 0.5);
 }
 
 /* ---------- base ---------- */
@@ -1420,8 +1424,15 @@ button.round-btn:focus-visible {
 }
 
 .tbar-stats {
+  min-width: 0;
   color: var(--text-2);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tbar > .votes {
+  flex: none;
 }
 
 .sr-only {
@@ -2345,4 +2356,168 @@ button.round-btn:focus-visible {
 
 .btn.back {
   align-self: flex-start;
+}
+
+/* ---------- small screens ---------- */
+
+/* On a small screen the conversation takes the full width, and the sidebar
+   and the participants panel open over it from the left and the right. The
+   app renders each one only while it is open, with a .scrim behind it.
+   This query is also in lib/ui/useCompact.ts as COMPACT_QUERY, and the two
+   must match. */
+@media (max-width: 1023px) {
+  /* The open panels slide in with an animation that ends at no transform,
+     and they keep no transform at rest. A transform would make the panel the
+     containing block for the fixed .menu popovers inside it, and the menus
+     would be placed against the panel instead of the window. */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(256px, 85vw);
+    z-index: 61;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28);
+    animation: drawer-from-left 0.18s ease-out;
+  }
+
+  .panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(380px, 100%);
+    z-index: 61;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28);
+    animation: drawer-from-right 0.18s ease-out;
+  }
+
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: var(--scrim);
+    animation: scrim-in 0.18s ease-out;
+  }
+
+  /* The header always starts with the sidebar button, as when the sidebar is
+     hidden on a wide screen. Export shows only its icon. */
+  .head {
+    padding-left: 8px;
+  }
+
+  .head-title {
+    padding-left: 8px;
+  }
+
+  .head .btn-label {
+    display: none;
+  }
+
+  .head-acts .btn.ghost {
+    width: 32px;
+    padding: 0;
+  }
+
+  .thread {
+    padding: 4px 16px 20px;
+  }
+
+  .composer {
+    padding: 8px 12px 12px;
+  }
+
+  .banner {
+    margin: 12px 16px 0;
+  }
+
+  .center {
+    padding: 32px 16px;
+  }
+
+  .modal-back {
+    padding: 12px;
+  }
+
+  .modal {
+    max-height: calc(100dvh - 24px);
+  }
+}
+
+/* A phone has no room in a reply's toolbar for the token counts beside the
+   duration, the copy and reply buttons and the votes. */
+@media (max-width: 479px) {
+  .tbar-usage {
+    display: none;
+  }
+}
+
+@keyframes drawer-from-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes drawer-from-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .panel,
+  .scrim {
+    animation: none;
+  }
+}
+
+/* iOS zooms the page when a focused field's text is smaller than 16px, so
+   every field on a small touch screen uses 16px. It is marked important
+   because many fields set their own size with a more specific selector.
+   The short fields in a row or the header grow to fit the larger text. */
+@media (max-width: 1023px) and (pointer: coarse) {
+  textarea,
+  select,
+  input:not([type="file"]) {
+    font-size: 16px !important;
+  }
+
+  .row-input,
+  .title-input {
+    height: 28px;
+  }
+}
+
+/* With no hover, a row's more button is always shown, and the time sits to
+   its left. */
+@media (hover: none) {
+  .row-more {
+    display: grid;
+  }
+
+  .row:hover .row-time,
+  .row:focus-within .row-time,
+  .row.menu-open .row-time {
+    visibility: visible;
+  }
+
+  .row-link {
+    padding-right: 32px;
+  }
 }
