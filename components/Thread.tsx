@@ -11,7 +11,6 @@ import {
   isBusy,
   isSeatId,
   modeLabel,
-  modeOf,
   privateAfter,
   roundReplyCount,
   seatColor,
@@ -57,7 +56,6 @@ export function Thread({
 
   const last = table.rounds.length;
   const busy = isBusy(table);
-  const mixed = table.rounds.some((r) => table.rounds[0] && modeOf(r) !== modeOf(table.rounds[0]));
 
   return (
     <div className="thread-wrap">
@@ -81,7 +79,6 @@ export function Thread({
                   table={table}
                   latest={round.number === last}
                   collapsed={collapsed}
-                  showInteraction={mixed}
                   activeSeat={activeSeat}
                   highlightReplyId={highlightReplyId}
                   expanded={expanded}
@@ -114,7 +111,6 @@ function RoundView({
   table,
   latest,
   collapsed,
-  showInteraction,
   activeSeat,
   highlightReplyId,
   expanded,
@@ -129,7 +125,6 @@ function RoundView({
   table: Table;
   latest: boolean;
   collapsed: boolean;
-  showInteraction: boolean;
   activeSeat: SeatId | null;
   highlightReplyId: string | null;
   expanded: Record<string, boolean>;
@@ -144,11 +139,11 @@ function RoundView({
   const interaction = modeLabel(round);
   const count = plural(roundReplyCount(round), "reply", "replies");
   // A spoken name with pauses, since the visible parts sit side by side.
-  const label = [`Round ${round.number}`, showInteraction && interaction, status, onToggle && count].filter(Boolean).join(", ");
+  const label = [`Round ${round.number}`, interaction, status, onToggle && count].filter(Boolean).join(", ");
   const heading = (
     <>
       <span className="round-n">Round {round.number}</span>
-      {showInteraction ? <span className="round-tag">{interaction}</span> : null}
+      <span className="round-tag">{interaction}</span>
       {status ? <span className={cx("round-tag", round.status)}>{status}</span> : null}
       <span className="round-rule" />
       {onToggle ? (
