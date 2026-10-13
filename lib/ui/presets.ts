@@ -6,7 +6,18 @@
 // event brings in another tab's changes.
 
 import { useSyncExternalStore } from "react";
-import { SEAT_LETTERS, type Arbiter, type Interaction, type Seat, type Table, type TableEdit, type Turns } from "@/lib/types";
+import {
+  SEAT_LETTERS,
+  type Arbiter,
+  type Interaction,
+  type ModelInfo,
+  type ModelsResponse,
+  type Seat,
+  type Table,
+  type TableEdit,
+  type Turns,
+} from "@/lib/types";
+import { SUMMARIZER_INSTRUCTIONS, SUMMARIZER_NAME } from "./engine";
 import { uid } from "./format";
 import { createStore, isQuotaError, PREFIX, storageWarningStore } from "./storage";
 
@@ -110,6 +121,90 @@ function withoutId<T extends { id: string }>(item: T): Omit<T, "id"> {
 export function deletePreset(id: string) {
   const name = presetsStore.get().find((p) => p.id === id)?.name ?? "";
   update((list) => list.filter((p) => p.id !== id), name);
+}
+
+// ---------- Built-in presets ----------
+
+// A built-in agent names a tier of one maker. It resolves against the model
+// list the server sends, so a new release of a family takes over on its own.
+// With a command line tool named, the tool is used when it is installed, run
+// on the model matched in its own list, and the gateway model otherwise.
+interface BuiltinAgent {
+  tool?: "cli/claude-code" | "cli/codex";
+  toolModel?: RegExp; // matched against the tool's own model ids
+  api: RegExp; // matched against gateway model ids
+}
+
+const CLAUDE_TOP: BuiltinAgent = { tool: "cli/claude-code", toolModel: /^fable$/, api: /^anthropic\/claude-fable/ };
+const CLAUDE_GOOD: BuiltinAgent = { tool: "cli/claude-code", toolModel: /^opus$/, api: /^anthropic\/claude-opus/ };
+const CODEX_TOP: BuiltinAgent = { tool: "cli/codex", toolModel: /astra/, api: /^openai\/gpt-[\d.]+-astra/ };
+const CODEX_GOOD: BuiltinAgent = { tool: "cli/codex", toolModel: /sol/, api: /^openai\/gpt-[\d.]+-sol/ };
+const API_CLAUDE_TOP: BuiltinAgent = { api: CLAUDE_TOP.api };
+const API_CLAUDE_GOOD: BuiltinAgent = { api: CLAUDE_GOOD.api };
+const API_GPT_TOP: BuiltinAgent = { api: CODEX_TOP.api };
+const API_GPT_GOOD: BuiltinAgent = { api: CODEX_GOOD.api };
+const GEMINI_TOP: BuiltinAgent = { api: /^google\/gemini-[\d.]+-pro/ };
+const GEMINI_GOOD: BuiltinAgent = { api: /^google\/gemini-[\d.]+-flash$/ };
+const GROK_TOP: BuiltinAgent = { api: /^(?:space)?xai\/grok-[\d.]+$/ };
+const GROK_GOOD: BuiltinAgent = { api: /^(?:space)?xai\/grok-[\d.]+-fast/ };
+
+const BUILTIN: Array<{ name: string; agents: BuiltinAgent[] }> = [
+  { name: "Coding agents · Top tier", agents: [CLAUDE_TOP, CODEX_TOP] },
+  { name: "Coding agents · Good tier", agents: [CLAUDE_GOOD, CODEX_GOOD] },
+  { name: "Hybrid four · Top tier", agents: [CLAUDE_TOP, CODEX_TOP, GEMINI_TOP, GROK_TOP] },
+  { name: "Hybrid four · Good tier", agents: [CLAUDE_GOOD, CODEX_GOOD, GEMINI_GOOD, GROK_GOOD] },
+  { name: "Big 4 API · Top tier", agents: [API_CLAUDE_TOP, API_GPT_TOP, GEMINI_TOP, GROK_TOP] },
+  { name: "Big 4 API · Good tier", agents: [API_CLAUDE_GOOD, API_GPT_GOOD, GEMINI_GOOD, GROK_GOOD] },
+];
+
+// The built-in presets that the current model list can fill completely.
+// Each comes with the Summarizer arbiter on the default arbiter model.
+export function builtinPresets(data: ModelsResponse): Preset[] {
+  const arbiter = summarizer(data);
+  const out: Preset[] = [];
+  BUILTIN.forEach((entry, i) => {
+    const seats = entry.agents.map((agent) => resolveAgent(agent, data.models));
+    if (seats.some((s) => s === null)) return;
+    out.push({
+      id: `builtin-${i + 1}`,
+      name: entry.name,
+      createdAt: 0,
+      interaction: "group",
+      turns: "parallel",
+      instructions: "",
+      seats: seats as Array<Omit<Seat, "id">>,
+      arbiters: arbiter ? [arbiter] : [],
+    });
+  });
+  return out;
+}
+
+export function isBuiltinPreset(preset: Preset): boolean {
+  return preset.id.startsWith("builtin-");
+}
+
+function resolveAgent(agent: BuiltinAgent, models: ModelInfo[]): Omit<Seat, "id"> | null {
+  const tool = agent.tool ? models.find((m) => m.id === agent.tool) : undefined;
+  if (tool) {
+    const toolModel = agent.toolModel ? tool.toolModels?.find((t) => agent.toolModel?.test(t.id))?.id : undefined;
+    return { modelId: tool.id, modelName: tool.name, maker: tool.maker, browsing: true, ...(toolModel ? { toolModel } : {}) };
+  }
+  const api = models.find((m) => !m.id.startsWith("cli/") && agent.api.test(m.id));
+  if (!api) return null;
+  return { modelId: api.id, modelName: api.name, maker: api.maker, browsing: true };
+}
+
+function summarizer(data: ModelsResponse): Omit<Arbiter, "id"> | null {
+  const model = data.models.find((m) => m.id === data.defaults.arbiter) ?? data.models[0];
+  if (!model) return null;
+  return {
+    name: SUMMARIZER_NAME,
+    modelId: model.id,
+    modelName: model.name,
+    maker: model.maker,
+    browsing: false,
+    instructions: SUMMARIZER_INSTRUCTIONS,
+  };
 }
 
 // The edit that gives a table this setup. Agents get letters A, B, C in order.

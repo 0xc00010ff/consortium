@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, useMemo } from "react";
 import {
   MAKER_LABELS,
   SEAT_COLORS,
@@ -28,7 +28,7 @@ import {
   seatName,
   withModel,
 } from "@/lib/ui/view";
-import { applyPreset, deletePreset, savePreset, usePresets } from "@/lib/ui/presets";
+import { applyPreset, builtinPresets, deletePreset, savePreset, usePresets } from "@/lib/ui/presets";
 import { Icon } from "./Icon";
 import { ArbiterAvatar, cx, IconButton, Menu, SeatAvatar, Switch, Toggle } from "./ui";
 
@@ -130,7 +130,7 @@ export function ParticipantsPanel({
         <section className="psec">
           <div className="lbl-row">
             <h3 className="lbl">Agents</h3>
-            <Presets table={table} disabled={disabled} onEdit={onEdit} />
+            <Presets table={table} data={data} disabled={disabled} onEdit={onEdit} />
           </div>
           <ul className={cx("prows", sorting && "sorting")} ref={listRef}>
             {table.seats.map((seat) => {
@@ -299,8 +299,19 @@ export function ParticipantsPanel({
 }
 
 // Saved setups for this panel. Choosing one replaces the whole setup.
-function Presets({ table, disabled, onEdit }: { table: Table; disabled: boolean; onEdit: (edit: TableEdit) => void }) {
+function Presets({
+  table,
+  data,
+  disabled,
+  onEdit,
+}: {
+  table: Table;
+  data: ModelsResponse | null;
+  disabled: boolean;
+  onEdit: (edit: TableEdit) => void;
+}) {
   const presets = usePresets();
+  const builtin = useMemo(() => (data ? builtinPresets(data) : []), [data]);
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   // "Save new…" turns into a name field inside the menu. The page cannot use
   // window.prompt, which some browsers do not support.
@@ -334,6 +345,21 @@ function Presets({ table, disabled, onEdit }: { table: Table; disabled: boolean;
       </button>
       {open ? (
         <Menu anchor={anchor} label="Presets" onClose={close}>
+          {builtin.map((preset) => (
+            <button
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              key={preset.id}
+              onClick={() => {
+                close(true);
+                onEdit(applyPreset(preset));
+              }}
+            >
+              {preset.name}
+            </button>
+          ))}
+          {builtin.length && presets.length ? <div role="separator" className="menu-sep" /> : null}
           {presets.map((preset) => (
             <div className="menu-line" key={preset.id}>
               <button
@@ -374,7 +400,7 @@ function Presets({ table, disabled, onEdit }: { table: Table; disabled: boolean;
               </button>
             </div>
           ))}
-          {presets.length ? <div role="separator" className="menu-sep" /> : null}
+          {builtin.length || presets.length ? <div role="separator" className="menu-sep" /> : null}
           {naming ? (
             <input
               className="input menu-input"
