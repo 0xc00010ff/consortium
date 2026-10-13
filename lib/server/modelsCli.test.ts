@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliTool } from "./cliTools";
-import { clearModelsCache, codexChoices, getModelsResponse, MOCK_MODELS } from "./models";
+import { clearModelsCache, getModelsResponse, MOCK_MODELS } from "./models";
 import { isolateSettings, removeSettingsDirs } from "./settingsHome.testkit";
 
 // The gateway list is replaced, so the test with a key never reaches the network.
@@ -28,10 +28,11 @@ const CLAUDE_ALIASES = [
   { id: "sonnet", name: "Sonnet" },
   { id: "haiku", name: "Haiku" },
 ];
-// The OpenAI models of the built-in list, used when no gateway list can be read.
+// The models Codex accepts, as the Codex command names them.
 const BUILT_IN_CODEX = [
   { id: "gpt-6-astra", name: "GPT-6 Astra" },
-  { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
+  { id: "gpt-6-pro", name: "GPT-6 Pro" },
+  { id: "gpt-6-sol", name: "GPT-6 Sol" },
   { id: "gpt-6-luna", name: "GPT-6 Luna" },
 ];
 const claudeInfo = {
@@ -113,12 +114,8 @@ describe("the model list with Claude Code and Codex", () => {
       "openai/gpt-7-sol",
     ]);
     expect(body.models[0]).toEqual(claudeInfo);
-    // Codex gets the gateway's OpenAI models, then its configured model once.
-    expect(body.models[1].toolModels).toEqual([
-      { id: "gpt-7-astra", name: "GPT-7 Astra" },
-      { id: "gpt-7-sol", name: "GPT-7 Sol" },
-      { id: "gpt-6-astra", name: "gpt-6-astra" },
-    ]);
+    // Codex keeps its own models whatever the gateway lists; the configured one is already there.
+    expect(body.models[1].toolModels).toEqual(BUILT_IN_CODEX);
     expect(body.defaults).toEqual({ seats: ["cli/claude-code", "cli/codex"], arbiter: "cli/claude-code" });
   });
 
@@ -127,27 +124,6 @@ describe("the model list with Claude Code and Codex", () => {
     process.env.AI_GATEWAY_API_KEY = "test-key-not-used";
     const body = await getModelsResponse({ tools: [codex] });
     expect(body.defaults).toEqual({ seats: ["cli/codex"], arbiter: "anthropic/claude-sonnet-5.5" });
-  });
-});
-
-describe("the Codex model choices", () => {
-  it("takes the curated OpenAI families from a list, newest tier first, without the prefix", () => {
-    expect(
-      codexChoices([
-        { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", maker: "anthropic" },
-        { id: "openai/gpt-7-astra", name: "GPT-7 Astra", maker: "openai" },
-        { id: "openai/gpt-7-luna", name: "GPT-7 Luna", maker: "openai" },
-        { id: "openai/gpt-5.5", name: "GPT 5.5", maker: "openai" },
-      ]),
-    ).toEqual([
-      { id: "gpt-7-astra", name: "GPT-7 Astra" },
-      { id: "gpt-7-luna", name: "GPT-7 Luna" },
-    ]);
-  });
-
-  it("falls back to the built-in OpenAI models when the list has none", () => {
-    expect(codexChoices([])).toEqual(BUILT_IN_CODEX);
-    expect(codexChoices(MOCK_MODELS)).toEqual(BUILT_IN_CODEX);
   });
 });
 
@@ -194,7 +170,7 @@ describe("the model list with provider keys only", () => {
     expect(body.defaults).toEqual({ seats: ["spacexai/grok-4.7"], arbiter: "spacexai/grok-4.7" });
   });
 
-  it("keeps the tools first and as the default agents, and gives Codex the full OpenAI list", async () => {
+  it("keeps the tools first and as the default agents, and Codex its own models", async () => {
     const body = await getModelsResponse({ tools: [claude, codex], keys: anthropicOnly });
     expect(body.models.map((m) => m.id)).toEqual([
       "cli/claude-code",
@@ -202,7 +178,7 @@ describe("the model list with provider keys only", () => {
       "anthropic/claude-opus-5.5",
       "anthropic/claude-sonnet-5.5",
     ]);
-    expect(body.models[1].toolModels?.map((m) => m.id)).toEqual(["gpt-7-astra", "gpt-7-sol", "gpt-6-astra"]);
+    expect(body.models[1].toolModels).toEqual(BUILT_IN_CODEX);
     expect(body.defaults).toEqual({ seats: ["cli/claude-code", "cli/codex"], arbiter: "cli/claude-code" });
   });
 

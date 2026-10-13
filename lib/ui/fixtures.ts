@@ -40,7 +40,8 @@ export const FIXTURE_MODELS: ModelsResponse = {
       defaultModel: "gpt-6-astra",
       toolModels: [
         { id: "gpt-6-astra", name: "GPT-6 Astra" },
-        { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
+        { id: "gpt-6-pro", name: "GPT-6 Pro" },
+        { id: "gpt-6-sol", name: "GPT-6 Sol" },
         { id: "gpt-6-luna", name: "GPT-6 Luna" },
       ],
     },

@@ -384,7 +384,7 @@ function claudeErrorMessage(result: Json): string {
   if (/not logged in|\/login|invalid api key|oauth token/i.test(detail)) {
     return "Claude Code is not signed in. Run claude in a terminal and sign in with /login, then try again.";
   }
-  return detail ? `Claude Code could not answer. ${detail}` : "Claude Code could not answer, and gave no reason.";
+  return detail ? `Claude Code reported: ${detail}` : "Claude Code gave no reason.";
 }
 
 function toolResultText(content: unknown): string {
@@ -512,7 +512,7 @@ export class CodexTranslator implements Translator {
         this.failure = str(asRecord(data.error)?.message) || "The turn failed.";
         return [];
       case "error":
-        this.lastError = str(data.message) || this.lastError;
+        this.lastError = str(data.message) || str(asRecord(data.error)?.message) || this.lastError;
         return [];
       default:
         return [];
@@ -551,7 +551,7 @@ export class CodexTranslator implements Translator {
   }
 
   finish(exit: ExitInfo, durationMs: number): SpeakEvent {
-    if (this.failure) return { type: "error", message: `Codex could not answer. ${this.failure}` };
+    if (this.failure) return { type: "error", message: `Codex reported: ${this.failure}` };
     if (this.completed) return { type: "done", usage: this.usage, durationMs, finishReason: "stop" };
     return processFailure("Codex", exit, this.unreadable, this.lastError);
   }
@@ -668,6 +668,22 @@ function clip(text: string): string {
   return single.length > DETAIL_LIMIT ? `${single.slice(0, DETAIL_LIMIT - 3)}...` : single;
 }
 
+// The message inside a JSON error line, such as
+// {"type":"error","status":400,"error":{"message":"…"}}, or the text as it is.
+function errorText(raw: string | null | undefined): string {
+  const text = (raw ?? "").trim();
+  const line = [...text.split("\n")].reverse().find((l) => l.trim().startsWith("{"));
+  if (!line) return text;
+  try {
+    const data = JSON.parse(line) as { message?: unknown; error?: { message?: unknown } };
+    const message = typeof data.error?.message === "string" ? data.error.message : data.message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  } catch {
+    // not JSON after all
+  }
+  return text;
+}
+
 // A process that ended without a result.
 function processFailure(name: string, exit: ExitInfo, unreadable: string | null, lastError?: string | null): SpeakEvent {
   if (exit.error) {
@@ -675,7 +691,7 @@ function processFailure(name: string, exit: ExitInfo, unreadable: string | null,
     const reason = code === "ENOENT" ? "The command was not found." : exit.error.message;
     return { type: "error", message: `${name} could not be started. ${reason}` };
   }
-  const detail = tail(lastError || exit.stderr) || (unreadable ? `It printed: ${tail(unreadable)}` : "");
+  const detail = tail(errorText(lastError || exit.stderr)) || (unreadable ? `It printed: ${tail(unreadable)}` : "");
   if (exit.code !== null && exit.code !== 0) {
     return { type: "error", message: `${name} exited with code ${exit.code}${detail ? `: ${detail}` : "."}` };
   }

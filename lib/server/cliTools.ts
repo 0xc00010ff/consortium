@@ -51,7 +51,18 @@ export const CLAUDE_TOOL_MODELS: ToolModel[] = [
   { id: "haiku", name: "Haiku" },
 ];
 
-// The models Codex can run with: the given OpenAI models, then the model from
+// The models Codex accepts with a ChatGPT login. Codex does not take the
+// gateway's ids: "gpt-6.1-sol" fails with "not supported when using Codex
+// with a ChatGPT account". These ids are the ones the Codex command itself
+// names.
+export const CODEX_TOOL_MODELS: ToolModel[] = [
+  { id: "gpt-6-astra", name: "GPT-6 Astra" },
+  { id: "gpt-6-pro", name: "GPT-6 Pro" },
+  { id: "gpt-6-sol", name: "GPT-6 Sol" },
+  { id: "gpt-6-luna", name: "GPT-6 Luna" },
+];
+
+// The models Codex can run with: the given list, then the model from
 // config.toml when it is not already listed. Ids Codex could not take as an
 // argument are left out.
 export function codexToolModels(openai: ToolModel[], configuredModel: string | null): ToolModel[] {
@@ -267,7 +278,7 @@ export function findCliTool(id: string, now?: number): CliTool | null {
 
 // openaiModels: the OpenAI models Codex can run with, from the gateway list,
 // with ids as Codex takes them.
-export function cliModelInfo(tool: CliTool, openaiModels: ToolModel[] = []): ModelInfo {
+export function cliModelInfo(tool: CliTool, openaiModels: ToolModel[] = CODEX_TOOL_MODELS): ModelInfo {
   if (tool.id === CLAUDE_CODE_ID) {
     const model = seenModels.get(CLAUDE_CODE_ID) ?? tool.configuredModel;
     return {
@@ -289,7 +300,7 @@ export function cliModelInfo(tool: CliTool, openaiModels: ToolModel[] = []): Mod
 }
 
 // Claude Code first, then Codex.
-export function cliModelInfos(tools: CliTool[], openaiModels: ToolModel[] = []): ModelInfo[] {
+export function cliModelInfos(tools: CliTool[], openaiModels: ToolModel[] = CODEX_TOOL_MODELS): ModelInfo[] {
   const order: CliToolId[] = [CLAUDE_CODE_ID, CODEX_ID];
   return [...tools]
     .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))

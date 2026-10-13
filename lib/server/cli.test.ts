@@ -204,7 +204,7 @@ describe("Claude Code output", () => {
     const events = translate(new ClaudeTranslator(), [
       JSON.stringify({ type: "result", subtype: "success", is_error: true, result: "API Error: 529 Overloaded" }),
     ]);
-    expect(events.at(-1)).toEqual({ type: "error", message: "Claude Code could not answer. API Error: 529 Overloaded" });
+    expect(events.at(-1)).toEqual({ type: "error", message: "Claude Code reported: API Error: 529 Overloaded" });
   });
 
   it("says when Claude Code is not signed in", () => {
@@ -259,7 +259,7 @@ describe("Codex output", () => {
       JSON.stringify({ type: "error", message: "Reconnecting... 1/5" }),
       JSON.stringify({ type: "turn.failed", error: { message: "You've hit your usage limit." } }),
     ]);
-    expect(events).toEqual([{ type: "error", message: "Codex could not answer. You've hit your usage limit." }]);
+    expect(events).toEqual([{ type: "error", message: "Codex reported: You've hit your usage limit." }]);
   });
 
   it("uses the last error event when the process exits early", () => {

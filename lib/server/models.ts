@@ -14,8 +14,8 @@
 // offers its model aliases, and Codex offers the OpenAI models from the short
 // list.
 
-import type { Maker, ModelInfo, ModelsResponse, ToolModel } from "@/lib/types";
-import { CLAUDE_CODE_ID, CODEX_ID, clearCliToolCache, cliModelInfos, getCliTools, type CliTool } from "./cliTools";
+import type { Maker, ModelInfo, ModelsResponse } from "@/lib/types";
+import { CLAUDE_CODE_ID, clearCliToolCache, cliModelInfos, getCliTools, type CliTool } from "./cliTools";
 import { isForcedMock } from "./env";
 import { gatewayProvider } from "./gatewayClient";
 import { makersWithKeys, resolveKeys, type ResolvedKeys } from "./settings";
@@ -132,14 +132,14 @@ export async function getModelsResponse({ now = Date.now(), tools, keys }: Model
   // CONSORTIUM_MOCK=1: sample replies for everything, so no key is read.
   if (isForcedMock()) {
     const sample = await sampleList(now);
-    return withTools(sample, found, sample.models);
+    return withTools(sample, found);
   }
 
   const resolved = keys ?? resolveKeys();
   const gatewayKey = resolved.gateway?.value;
   if (gatewayKey) {
     const base = await gatewayList(now, gatewayKey);
-    return withTools(base, found, base.models);
+    return withTools(base, found);
   }
 
   // Provider keys only: the public list, limited to the makers with a key.
@@ -147,16 +147,14 @@ export async function getModelsResponse({ now = Date.now(), tools, keys }: Model
   const makers = makersWithKeys(resolved);
   if (makers.length > 0) {
     const base = await providerList(now, makers);
-    const openai = found.some((t) => t.id === CODEX_ID) ? (await sampleList(now)).models : [];
-    return withTools(base, found, openai);
+    return withTools(base, found);
   }
 
   // No key: the installed tools are the whole list. The public gateway list is
   // read only to offer Codex its models. With no tools, the app stays in
   // sample mode.
   if (found.length > 0) {
-    const openai = found.some((t) => t.id === CODEX_ID) ? codexChoices((await sampleList(now)).models) : [];
-    const installed = cliModelInfos(found, openai);
+    const installed = cliModelInfos(found);
     const ids = installed.map((m) => m.id);
     return {
       mock: false,
@@ -169,28 +167,15 @@ export async function getModelsResponse({ now = Date.now(), tools, keys }: Model
 
 // The installed tools come first and are the default agents, since they run
 // on the host's subscriptions. Claude Code is the default arbiter when
-// installed; otherwise it stays a gateway model. openaiSource is the list
-// Codex takes its model choices from.
-function withTools(base: ModelsResponse, found: CliTool[], openaiSource: ModelInfo[]): ModelsResponse {
-  const installed = cliModelInfos(found, codexChoices(openaiSource));
+// installed; otherwise it stays a gateway model.
+function withTools(base: ModelsResponse, found: CliTool[]): ModelsResponse {
+  const installed = cliModelInfos(found);
   if (installed.length === 0) return base;
   const defaults = {
     seats: installed.map((m) => m.id),
     arbiter: found.some((t) => t.id === CLAUDE_CODE_ID) ? CLAUDE_CODE_ID : base.defaults.arbiter,
   };
   return { ...base, models: [...installed, ...base.models], defaults };
-}
-
-// The models Codex can run with: the OpenAI families of the short list, newest
-// tier first, with ids as Codex takes them. The built-in list stands in when
-// the list has none.
-export function codexChoices(models: ModelInfo[]): ToolModel[] {
-  const pick = (list: ModelInfo[]) =>
-    list
-      .filter((m) => m.maker === "openai" && FAMILIES.openai.some((f) => f.match.test(familyOf(m.id))))
-      .map((m) => ({ id: m.id.replace(/^openai\//, ""), name: m.name }));
-  const fromList = pick(models);
-  return fromList.length > 0 ? fromList : pick(MOCK_MODELS);
 }
 
 async function gatewayList(now: number, key: string): Promise<ModelsResponse> {
