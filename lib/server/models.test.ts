@@ -1,13 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CliTool } from "./cliTools";
 import {
   buildModelsResponse,
+  clearModelsCache,
   curate,
   familyOf,
   fetchPublicModelList,
+  getModelsResponse,
   MOCK_MODELS,
   mockModelsResponse,
   pickDefaults,
 } from "./models";
+import { resolveKeys, writeSettingsFile } from "./settings";
+import { isolateSettings, removeSettingsDirs } from "./settingsHome.testkit";
+
+// The gateway list is replaced, so the test with a gateway key never reaches the network.
+vi.mock("./gatewayClient", () => ({
+  gatewayProvider: () => ({
+    getAvailableModels: async () => ({
+      models: [{ id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", modelType: "language" }],
+    }),
+  }),
+}));
 
 const lang = (id: string, name: string, released?: number) => ({ id, name, modelType: "language", released });
 
@@ -164,5 +178,69 @@ describe("sample mode model list", () => {
     const ids = MOCK_MODELS.map((m) => m.id);
     expect(ids).toContain("anthropic/claude-fable-5.1");
     expect(ids).toContain("anthropic/claude-opus-5.5");
+  });
+});
+
+describe("the first-run setup flag", () => {
+  const saved = { ...process.env };
+  const claude: CliTool = { id: "cli/claude-code", bin: "/x/claude", configuredModel: null };
+  const noFile = { keys: {}, toolPaths: {}, setupDone: false };
+
+  beforeEach(() => {
+    isolateSettings();
+    delete process.env.CONSORTIUM_MOCK;
+    clearModelsCache();
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("no network in tests");
+    });
+  });
+
+  afterEach(() => {
+    process.env = { ...saved };
+    removeSettingsDirs();
+    vi.unstubAllGlobals();
+    clearModelsCache();
+  });
+
+  it("asks for setup with no key, no tools, and the setup not done", async () => {
+    const body = await getModelsResponse({ tools: [] });
+    expect(body.mock).toBe(true);
+    expect(body.needsSetup).toBe(true);
+  });
+
+  it("still asks for setup when a tool is installed but no key is set", async () => {
+    const body = await getModelsResponse({ tools: [claude], settings: noFile });
+    expect(body.mock).toBe(false);
+    expect(body.models.map((m) => m.id)).toEqual(["cli/claude-code"]);
+    expect(body.needsSetup).toBe(true);
+  });
+
+  it("does not ask with a gateway key", async () => {
+    process.env.AI_GATEWAY_API_KEY = "vck-test-not-used";
+    const body = await getModelsResponse({ tools: [] });
+    expect(body.mock).toBe(false);
+    expect(body.needsSetup).toBeFalsy();
+  });
+
+  it("does not ask with a provider key from the settings file", async () => {
+    writeSettingsFile({ keys: { openai: "sk-test-not-used" }, toolPaths: {}, setupDone: false });
+    const body = await getModelsResponse({ tools: [] });
+    expect(body.mock).toBe(false);
+    expect(body.needsSetup).toBeFalsy();
+  });
+
+  it("does not ask once the setup is done, from the file or from the option", async () => {
+    writeSettingsFile({ keys: {}, toolPaths: {}, setupDone: true });
+    expect((await getModelsResponse({ tools: [] })).needsSetup).toBe(false);
+    expect((await getModelsResponse({ tools: [claude] })).needsSetup).toBe(false);
+    const done = { ...noFile, setupDone: true };
+    expect((await getModelsResponse({ tools: [], settings: done, keys: resolveKeys(done, {}) })).needsSetup).toBe(false);
+  });
+
+  it("does not ask with CONSORTIUM_MOCK=1", async () => {
+    process.env.CONSORTIUM_MOCK = "1";
+    const body = await getModelsResponse({ tools: [], settings: noFile });
+    expect(body.mock).toBe(true);
+    expect(body.needsSetup).toBeFalsy();
   });
 });

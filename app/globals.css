@@ -1072,6 +1072,65 @@ textarea::placeholder {
   flex: 0 1 260px;
 }
 
+/* The setup dialog on a fresh install: a step line above the title, an
+   introduction, short hints, and Back and Continue in a footer. */
+.wiz-step {
+  margin: 0 0 2px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.wiz-intro {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.wiz-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+/* An install hint sits close under its tool. */
+.set-list .wiz-hint {
+  margin-top: -8px;
+}
+
+.wiz-hint code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--hover);
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.wiz-link {
+  align-self: flex-start;
+  text-decoration: none;
+}
+
+.wiz-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.wiz-foot {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px 20px;
+  border-top: 1px solid var(--border);
+}
+
 /* ---------- thread header ---------- */
 
 .head {

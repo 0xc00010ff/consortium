@@ -34,17 +34,20 @@ describe("the settings file", () => {
   });
 
   it("reads as empty when the file is missing or malformed", () => {
-    expect(readSettingsFile()).toEqual({ keys: {}, toolPaths: {} });
+    expect(readSettingsFile()).toEqual({ keys: {}, toolPaths: {}, setupDone: false });
     writeFileSync(settingsPath(), "{ not json");
-    expect(readSettingsFile()).toEqual({ keys: {}, toolPaths: {} });
-    writeFileSync(settingsPath(), JSON.stringify({ keys: { openai: 42, xai: " xai-1 ", other: "x" }, toolPaths: "nope" }));
-    expect(readSettingsFile()).toEqual({ keys: { xai: "xai-1" }, toolPaths: {} });
+    expect(readSettingsFile()).toEqual({ keys: {}, toolPaths: {}, setupDone: false });
+    writeFileSync(
+      settingsPath(),
+      JSON.stringify({ keys: { openai: 42, xai: " xai-1 ", other: "x" }, toolPaths: "nope", setupDone: "yes" }),
+    );
+    expect(readSettingsFile()).toEqual({ keys: { xai: "xai-1" }, toolPaths: {}, setupDone: false });
   });
 
   it("round-trips, with mode 0600 for the file and 0700 for a new folder", () => {
     const dir = path.join(home, "nested");
     process.env.CONSORTIUM_HOME = dir;
-    const settings = { keys: { gateway: "vck_abc123", anthropic: "sk-ant-1" }, toolPaths: { codex: "/opt/codex" } };
+    const settings = { keys: { gateway: "vck_abc123", anthropic: "sk-ant-1" }, toolPaths: { codex: "/opt/codex" }, setupDone: true };
     writeSettingsFile(settings);
     expect(readSettingsFile()).toEqual(settings);
     expect(statSync(settingsPath()).mode & 0o777).toBe(0o600);
@@ -68,6 +71,13 @@ describe("settings updates", () => {
       theme: "dark",
     });
     expect(parsed).toEqual({ ok: true, update: { keys: { gateway: "vck_1", openai: null }, toolPaths: { claude: null } } });
+  });
+
+  it("accepts setupDone as true or false and rejects other types", () => {
+    expect(parseSettingsUpdate({ setupDone: true })).toEqual({ ok: true, update: { setupDone: true } });
+    expect(parseSettingsUpdate({ setupDone: false })).toEqual({ ok: true, update: { setupDone: false } });
+    expect(parseSettingsUpdate({ setupDone: "true" })).toEqual({ ok: false, error: "setupDone must be true or false." });
+    expect(parseSettingsUpdate({ setupDone: null }).ok).toBe(false);
   });
 
   it("rejects values that are too long, of the wrong type, or contain spaces", () => {
@@ -95,12 +105,17 @@ describe("settings updates", () => {
   });
 
   it("sets, clears and leaves values alone", () => {
-    const current = { keys: { gateway: "g", openai: "o" }, toolPaths: { claude: "/a/claude" } };
+    const current = { keys: { gateway: "g", openai: "o" }, toolPaths: { claude: "/a/claude" }, setupDone: false };
     expect(applySettingsUpdate(current, { keys: { gateway: null, xai: "x" }, toolPaths: { codex: "/b/codex" } })).toEqual({
       keys: { openai: "o", xai: "x" },
       toolPaths: { claude: "/a/claude", codex: "/b/codex" },
+      setupDone: false,
     });
     expect(applySettingsUpdate(current, {})).toEqual(current);
+    const done = applySettingsUpdate(current, { setupDone: true });
+    expect(done.setupDone).toBe(true);
+    expect(applySettingsUpdate(done, { keys: { xai: "x" } }).setupDone).toBe(true);
+    expect(applySettingsUpdate(done, { setupDone: false }).setupDone).toBe(false);
   });
 });
 

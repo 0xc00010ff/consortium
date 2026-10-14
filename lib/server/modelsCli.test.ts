@@ -84,6 +84,7 @@ describe("the model list with Claude Code and Codex", () => {
       mock: false,
       models: [claudeInfo, codexInfo],
       defaults: { seats: ["cli/claude-code", "cli/codex"], arbiter: "cli/claude-code" },
+      needsSetup: true,
     });
     const codexOnly = await getModelsResponse({ tools: [{ ...codex, configuredModel: "gpt-5.5-codex" }] });
     expect(codexOnly.models).toEqual([

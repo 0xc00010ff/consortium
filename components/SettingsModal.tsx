@@ -16,7 +16,7 @@ import { defaultSetupChanged } from "@/lib/ui/tables";
 import { Icon } from "./Icon";
 import { IconButton, Toggle } from "./ui";
 
-const KEY_LABELS: Record<KeyName, string> = {
+export const KEY_LABELS: Record<KeyName, string> = {
   gateway: "Vercel AI Gateway",
   anthropic: "Anthropic",
   openai: "OpenAI",
@@ -25,7 +25,7 @@ const KEY_LABELS: Record<KeyName, string> = {
 };
 
 // The environment variable each key can also come from, shown in a tooltip.
-const KEY_ENV: Record<KeyName, string> = {
+export const KEY_ENV: Record<KeyName, string> = {
   gateway: "AI_GATEWAY_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
@@ -34,9 +34,9 @@ const KEY_ENV: Record<KeyName, string> = {
 };
 
 const PROVIDER_KEYS = KEY_NAMES.filter((k) => k !== "gateway");
-const GATEWAY_URL = "https://vercel.com/ai-gateway";
+export const GATEWAY_URL = "https://vercel.com/ai-gateway";
 
-const TOOL_KEYS: Record<ToolStatus["id"], "claude" | "codex"> = {
+export const TOOL_KEYS: Record<ToolStatus["id"], "claude" | "codex"> = {
   "cli/claude-code": "claude",
   "cli/codex": "codex",
 };
@@ -55,10 +55,40 @@ function without<T extends object>(record: T, key: keyof T): T {
 
 const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
-// The Settings dialog. Escape, the close button and a press on the backdrop
-// close it. Focus starts on the dialog, Tab stays inside it, and focus goes
-// back to whatever opened it when it closes.
+// The Settings dialog.
 export function SettingsModal({ data, onClose }: { data: ModelsResponse | null; onClose: () => void }) {
+  return (
+    <Modal title="Settings" onClose={onClose}>
+      <ServerSettings />
+      <section className="psec">
+        <h3 className="lbl">Appearance</h3>
+        <ThemeRow />
+      </section>
+      <section className="psec">
+        <h3 className="lbl">New conversations</h3>
+        <DefaultSetupRow data={data} />
+      </section>
+    </Modal>
+  );
+}
+
+// A centered dialog with a title, a close button, a body that scrolls, and an
+// optional footer. Escape, the close button and a press on the backdrop close
+// it. Focus starts on the dialog, Tab stays inside it, and focus goes back to
+// whatever opened it when it closes.
+export function Modal({
+  title,
+  step,
+  footer,
+  onClose,
+  children,
+}: {
+  title: string;
+  step?: string; // a short line above the title, such as "Step 1 of 3"
+  footer?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
   const pressedBackdrop = useRef(false);
@@ -91,6 +121,8 @@ export function SettingsModal({ data, onClose }: { data: ModelsResponse | null; 
     }
   }
 
+  const heading = <h2 id={titleId}>{title}</h2>;
+
   return (
     <div
       className="modal-back"
@@ -104,20 +136,18 @@ export function SettingsModal({ data, onClose }: { data: ModelsResponse | null; 
     >
       <div ref={ref} className="modal" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown}>
         <div className="modal-head">
-          <h2 id={titleId}>Settings</h2>
+          {step ? (
+            <div>
+              <p className="wiz-step">{step}</p>
+              {heading}
+            </div>
+          ) : (
+            heading
+          )}
           <IconButton icon="x" label="Close" onClick={onClose} />
         </div>
-        <div className="modal-body">
-          <ServerSettings />
-          <section className="psec">
-            <h3 className="lbl">Appearance</h3>
-            <ThemeRow />
-          </section>
-          <section className="psec">
-            <h3 className="lbl">New conversations</h3>
-            <DefaultSetupRow data={data} />
-          </section>
-        </div>
+        <div className="modal-body">{children}</div>
+        {footer}
       </div>
     </div>
   );
@@ -125,16 +155,16 @@ export function SettingsModal({ data, onClose }: { data: ModelsResponse | null; 
 
 // ---------- API keys and coding agents, which the server keeps ----------
 
-function ServerSettings() {
+// The settings the server keeps, loaded once when the component mounts. The
+// Settings dialog and the setup dialog share this.
+export function useServerSettings() {
   const [settings, setSettings] = useState<SettingsResponse | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<Partial<Record<KeyName, string>>>({});
-  // null until the person opens or closes the provider keys themselves; then
-  // the section starts open when a provider key is set.
-  const [showProviders, setShowProviders] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,6 +181,11 @@ function ServerSettings() {
       cancelled = true;
     };
   }, [attempt]);
+
+  function retryLoad() {
+    setLoadFailed(false);
+    setAttempt((a) => a + 1);
+  }
 
   // Sends a change and shows the server's answer. Returns true when it was saved.
   async function save(update: SettingsUpdate): Promise<boolean> {
@@ -178,34 +213,57 @@ function ServerSettings() {
   async function reveal(name: KeyName) {
     setError(null);
     try {
-      const value = (await fetchSettings(true)).keys[name]?.value;
+      const value = (await fetchSettings({ reveal: true })).keys[name]?.value;
       if (value) setRevealed((r) => ({ ...r, [name]: value }));
     } catch {
       setError("Could not load the key.");
     }
   }
 
+  function hide(name: KeyName) {
+    setRevealed((r) => without(r, name));
+  }
+
+  // Asks the server to look for Claude Code and Codex again.
+  async function checkTools() {
+    setChecking(true);
+    setError(null);
+    try {
+      setSettings(await fetchSettings({ refresh: true }));
+    } catch {
+      setError("Could not check for the coding agents.");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return { settings, loadFailed, retryLoad, saving, checking, error, revealed, save, saveKey, reveal, hide, checkTools };
+}
+
+// What shows in place of the settings while they load, or after they failed to.
+export function SettingsLoading({ failed, onRetry }: { failed: boolean; onRetry: () => void }) {
+  if (!failed) return <p className="set-note">Loading the settings.</p>;
+  return (
+    <div className="set-line">
+      <span className="set-note">Could not load the settings.</span>
+      <button type="button" className="text-btn" onClick={onRetry}>
+        Try again
+      </button>
+    </div>
+  );
+}
+
+function ServerSettings() {
+  const { settings, loadFailed, retryLoad, saving, error, revealed, save, saveKey, reveal, hide } = useServerSettings();
+  // null until the person opens or closes the provider keys themselves; then
+  // the section starts open when a provider key is set.
+  const [showProviders, setShowProviders] = useState<boolean | null>(null);
+
   if (!settings) {
     return (
       <section className="psec">
         <h3 className="lbl">API keys</h3>
-        {loadFailed ? (
-          <div className="set-line">
-            <span className="set-note">Could not load the settings.</span>
-            <button
-              type="button"
-              className="text-btn"
-              onClick={() => {
-                setLoadFailed(false);
-                setAttempt((a) => a + 1);
-              }}
-            >
-              Try again
-            </button>
-          </div>
-        ) : (
-          <p className="set-note">Loading the settings.</p>
-        )}
+        <SettingsLoading failed={loadFailed} onRetry={retryLoad} />
       </section>
     );
   }
@@ -221,7 +279,7 @@ function ServerSettings() {
       revealed={revealed[name]}
       saving={saving}
       onShow={() => reveal(name)}
-      onHide={() => setRevealed((r) => without(r, name))}
+      onHide={() => hide(name)}
       onSave={(value) => saveKey(name, value)}
       onClear={() => saveKey(name, null)}
     />
@@ -277,7 +335,7 @@ function ServerSettings() {
   );
 }
 
-function KeyRow({
+export function KeyRow({
   label,
   env,
   status,
@@ -287,6 +345,7 @@ function KeyRow({
   onHide,
   onSave,
   onClear,
+  onDraft,
 }: {
   label: string;
   env: string; // the environment variable the key can also come from
@@ -297,8 +356,18 @@ function KeyRow({
   onHide: () => void;
   onSave: (value: string) => Promise<boolean>;
   onClear: () => void;
+  onDraft?: (value: string) => void; // the pasted text, for a caller that saves it on its own
 }) {
   const [draft, setDraft] = useState("");
+
+  // The key was saved from outside this row, so the pasted text is done with.
+  const mark = `${status.set}:${status.last4 ?? ""}`;
+  const [seen, setSeen] = useState(mark);
+  if (seen !== mark) {
+    setSeen(mark);
+    setDraft("");
+    onDraft?.("");
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -352,7 +421,10 @@ function KeyRow({
           aria-label={`${label} key`}
           autoComplete="off"
           spellCheck={false}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            onDraft?.(e.target.value);
+          }}
         />
         <button type="submit" className="btn" disabled={saving || !draft.trim()}>
           Save
@@ -362,7 +434,7 @@ function KeyRow({
   );
 }
 
-function ToolRow({
+export function ToolRow({
   tool,
   saving,
   onSave,

@@ -16,9 +16,11 @@ async function readResponse(res: Response): Promise<SettingsResponse> {
   return (await res.json()) as SettingsResponse;
 }
 
-// With reveal, each key that is set includes its whole value.
-export async function fetchSettings(reveal = false): Promise<SettingsResponse> {
-  return readResponse(await fetch(reveal ? "/api/settings?reveal=1" : "/api/settings", { cache: "no-store" }));
+// With reveal, each key that is set includes its whole value. With refresh,
+// the server looks for Claude Code and Codex again before it answers.
+export async function fetchSettings({ reveal = false, refresh = false } = {}): Promise<SettingsResponse> {
+  const query = [reveal && "reveal=1", refresh && "refresh=1"].filter(Boolean).join("&");
+  return readResponse(await fetch(query ? `/api/settings?${query}` : "/api/settings", { cache: "no-store" }));
 }
 
 // A null clears a value; a missing field is left alone.

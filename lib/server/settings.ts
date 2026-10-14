@@ -1,4 +1,5 @@
-// The host's own settings: API keys and tool paths, saved in
+// The host's own settings: API keys, tool paths, and whether the first-run
+// setup is done, saved in
 // ~/.consortium/settings.json (or $CONSORTIUM_HOME/settings.json). The file is
 // read fresh on every request, since it is small and the settings modal can
 // change it at any time.
@@ -18,6 +19,9 @@ export const TOOL_PATH_NAMES: ToolPathName[] = ["claude", "codex"];
 export interface SettingsFile {
   keys: Partial<Record<KeyName, string>>;
   toolPaths: Partial<Record<ToolPathName, string>>;
+  // true once the host finished or skipped the first-run setup. The file
+  // always reads with a value; a missing value means false.
+  setupDone?: boolean;
 }
 
 // The environment to read: process.env, or a plain object in tests.
@@ -45,11 +49,11 @@ export function settingsPath(env: Env = process.env): string {
 }
 
 function emptySettings(): SettingsFile {
-  return { keys: {}, toolPaths: {} };
+  return { keys: {}, toolPaths: {}, setupDone: false };
 }
 
-// A missing or malformed file reads as empty settings. Values of the wrong
-// type are dropped.
+// A missing or malformed file reads as empty settings, with the setup not
+// done. Values of the wrong type are dropped.
 export function readSettingsFile(file: string = settingsPath()): SettingsFile {
   let raw: unknown;
   try {
@@ -72,6 +76,7 @@ export function readSettingsFile(file: string = settingsPath()): SettingsFile {
       if (typeof value === "string" && value.trim()) settings.toolPaths[name] = value.trim();
     }
   }
+  if (typeof raw.setupDone === "boolean") settings.setupDone = raw.setupDone;
   return settings;
 }
 
@@ -95,7 +100,7 @@ const KEY_LABELS: Record<KeyName, string> = {
 };
 
 // Checks a PUT body. Strings are trimmed, an empty string or null clears the
-// value, and unknown fields are ignored.
+// value, setupDone must be true or false, and unknown fields are ignored.
 export function parseSettingsUpdate(body: unknown): ParsedUpdate {
   if (!isRecord(body)) return { ok: false, error: "The settings must be a JSON object." };
   const update: SettingsUpdate = {};
@@ -133,6 +138,11 @@ export function parseSettingsUpdate(body: unknown): ParsedUpdate {
     update.toolPaths = toolPaths;
   }
 
+  if (body.setupDone !== undefined) {
+    if (typeof body.setupDone !== "boolean") return { ok: false, error: "setupDone must be true or false." };
+    update.setupDone = body.setupDone;
+  }
+
   return { ok: true, update };
 }
 
@@ -150,7 +160,11 @@ function checkValue(value: unknown, label: string): { ok: true; value: string | 
 // Applies an update to the saved settings. A null or empty value removes the
 // setting; a missing field is left alone.
 export function applySettingsUpdate(current: SettingsFile, update: SettingsUpdate): SettingsFile {
-  const next: SettingsFile = { keys: { ...current.keys }, toolPaths: { ...current.toolPaths } };
+  const next: SettingsFile = {
+    keys: { ...current.keys },
+    toolPaths: { ...current.toolPaths },
+    setupDone: update.setupDone ?? (current.setupDone === true),
+  };
   for (const name of KEY_NAMES) {
     if (!update.keys || !(name in update.keys)) continue;
     const value = update.keys[name];

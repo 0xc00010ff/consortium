@@ -5,6 +5,7 @@ import type { ModelsResponse, TableStore } from "@/lib/types";
 import { FIXTURE_MODELS, isFixtureName, previewTable } from "@/lib/ui/fixtures";
 import { indexStore, storageWarningStore } from "@/lib/ui/storage";
 import {
+  defaultSetupChanged,
   deleteTable,
   getDraft,
   isDraft,
@@ -20,6 +21,7 @@ import { readWidth, saveWidth } from "@/lib/ui/settings";
 import { useTable } from "@/lib/ui/useStore";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsModal } from "./SettingsModal";
+import { SetupWizard } from "./SetupWizard";
 import { Sidebar } from "./Sidebar";
 import { TableScreen } from "./TableScreen";
 import { Banner, cx, IconButton, type Resize } from "./ui";
@@ -116,6 +118,24 @@ export default function App() {
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [participantsOpen, setParticipantsOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The host closed the setup dialog in this page session.
+  const [setupClosed, setSetupClosed] = useState(false);
+
+  // After the setup dialog or Settings closes, the model list is fetched again,
+  // since a key or a coding agent may have changed it. Once the new list
+  // arrives, a draft nobody has edited is dropped, so the next one uses the
+  // new defaults. Dropping it sooner would make the next draft from the old list.
+  const defaultsFrom = useRef<ModelsResponse | null | undefined>(undefined);
+  const { retry: retryModels, data: modelsData } = models;
+  const reloadModels = useCallback(() => {
+    defaultsFrom.current = modelsData;
+    retryModels();
+  }, [modelsData, retryModels]);
+  useEffect(() => {
+    if (defaultsFrom.current === undefined || modelsData === defaultsFrom.current) return;
+    defaultsFrom.current = undefined;
+    defaultSetupChanged();
+  }, [modelsData]);
 
   // The widths the host dragged the sidebar and the right panel to. The app
   // first renders on the client, once the hash is known, so reading storage
@@ -344,7 +364,22 @@ export default function App() {
         />
       ) : null}
       {screen}
-      {settingsOpen ? <SettingsModal data={data} onClose={() => setSettingsOpen(false)} /> : null}
+      {models.data?.needsSetup && !preview && !setupClosed ? (
+        <SetupWizard
+          onDone={() => {
+            setSetupClosed(true);
+            reloadModels();
+          }}
+        />
+      ) : settingsOpen ? (
+        <SettingsModal
+          data={data}
+          onClose={() => {
+            setSettingsOpen(false);
+            reloadModels();
+          }}
+        />
+      ) : null}
       <ConfirmDialog />
     </div>
   );

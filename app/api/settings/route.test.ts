@@ -82,10 +82,28 @@ describe("GET /api/settings", () => {
     });
     expect(JSON.stringify(body)).not.toContain("secret");
     expect(body.webSearch).toBe(false);
+    expect(body.setupDone).toBe(false);
     expect(body.tools).toEqual([
       { id: "cli/claude-code", name: "Claude Code", installed: true, path: "/x/claude", version: "2.1.290", defaultModel: "Sonnet" },
       { id: "cli/codex", name: "Codex", installed: false },
     ]);
+  });
+
+  it("clears the model list, tool and version caches with refresh=1", async () => {
+    writeSettingsFile({ keys: { openai: "sk-test-not-used" }, toolPaths: {} });
+    await getModelsResponse();
+    await get();
+    const counts = { detections, versionRuns, listFetches };
+
+    await get();
+    expect(detections).toBe(counts.detections);
+    expect(versionRuns).toBe(counts.versionRuns);
+
+    await get("?refresh=1");
+    expect(detections).toBeGreaterThan(counts.detections);
+    expect(versionRuns).toBeGreaterThan(counts.versionRuns);
+    await getModelsResponse();
+    expect(listFetches).toBeGreaterThan(counts.listFetches);
   });
 
   it("includes each set key's value with reveal=1", async () => {
@@ -108,6 +126,7 @@ describe("PUT /api/settings", () => {
     expect(JSON.parse(readFileSync(settingsPath(), "utf8"))).toEqual({
       keys: { openai: "sk-new-key-0001" },
       toolPaths: { codex: "/opt/codex" },
+      setupDone: false,
     });
     expect(statSync(settingsPath()).mode & 0o777).toBe(0o600);
   });
@@ -117,7 +136,11 @@ describe("PUT /api/settings", () => {
     const body = (await (await put({ keys: { openai: null } })).json()) as SettingsResponse;
     expect(body.keys.openai).toEqual({ set: false });
     expect(body.keys.xai.set).toBe(true);
-    expect(JSON.parse(readFileSync(settingsPath(), "utf8"))).toEqual({ keys: { xai: "xai-2222" }, toolPaths: { claude: "/a/claude" } });
+    expect(JSON.parse(readFileSync(settingsPath(), "utf8"))).toEqual({
+      keys: { xai: "xai-2222" },
+      toolPaths: { claude: "/a/claude" },
+      setupDone: false,
+    });
   });
 
   it("rejects bad input with status 400 and writes nothing", async () => {
@@ -127,7 +150,18 @@ describe("PUT /api/settings", () => {
     expect((await put({ keys: { openai: 12 } })).status).toBe(400);
     expect((await put({ toolPaths: { claude: "claude" } })).status).toBe(400);
     expect((await put("{oops")).status).toBe(400);
+    expect(await (await put({ setupDone: "yes" })).json()).toEqual({ error: "setupDone must be true or false." });
     expect(() => statSync(settingsPath())).toThrow();
+  });
+
+  it("marks the setup done and keeps the mark through later saves", async () => {
+    expect((await getModelsResponse()).needsSetup).toBe(true);
+    const body = (await (await put({ setupDone: true })).json()) as SettingsResponse;
+    expect(body.setupDone).toBe(true);
+    expect(JSON.parse(readFileSync(settingsPath(), "utf8"))).toEqual({ keys: {}, toolPaths: {}, setupDone: true });
+    expect((await getModelsResponse()).needsSetup).toBe(false);
+    await put({ keys: { xai: "xai-3333" } });
+    expect(((await (await get()).json()) as SettingsResponse).setupDone).toBe(true);
   });
 
   it("clears the model list, tool and version caches, so the next list reflects the change", async () => {

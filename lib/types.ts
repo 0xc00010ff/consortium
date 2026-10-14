@@ -291,6 +291,10 @@ export interface ModelsResponse {
     seats: string[]; // one model id per maker, for a new table
     arbiter: string; // a small, fast model id for a new arbiter
   };
+  // true on a fresh install: no API key from Settings or the environment, the
+  // first-run setup not yet finished or skipped, and CONSORTIUM_MOCK not set.
+  // The app then shows the setup dialog.
+  needsSetup?: boolean;
 }
 
 // ---------- Settings (app/api/settings) ----------
@@ -323,6 +327,7 @@ export interface SettingsResponse {
   keys: Record<KeyName, KeyStatus>;
   tools: ToolStatus[];
   webSearch: boolean; // true when a gateway key makes the web search tool available
+  setupDone: boolean; // the host finished or skipped the first-run setup dialog
 }
 
 // What the settings modal sends. A null clears a value; a missing field is
@@ -330,6 +335,7 @@ export interface SettingsResponse {
 export interface SettingsUpdate {
   keys?: Partial<Record<KeyName, string | null>>;
   toolPaths?: Partial<Record<"claude" | "codex", string | null>>;
+  setupDone?: boolean; // true marks the first-run setup as finished or skipped
 }
 
 // ---------- Saved conversations and presets (app/api/conversations, app/api/presets) ----------

@@ -14,7 +14,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000, add a key in Settings, and send a message. To try it without spending anything, run `npm run dev:mock` instead: the app writes the replies itself.
+Open http://localhost:3000. On the first run a setup dialog finds Claude Code and Codex on your machine and asks for a Vercel AI Gateway key. Either one is enough to start. To try it without spending anything, run `npm run dev:mock` instead: the app writes the replies itself.
 
 ## How it works
 

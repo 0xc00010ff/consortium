@@ -1,8 +1,9 @@
 // Builds the body of GET and PUT /api/settings: the status of each key, with
-// only its last four characters unless the host asked to reveal it, and the
-// status of Claude Code and Codex.
+// only its last four characters unless the host asked to reveal it, the
+// status of Claude Code and Codex, and whether the first-run setup is done.
 
 import { KEY_NAMES, type KeyName, type KeyStatus, type SettingsResponse } from "@/lib/types";
+import { clearCliToolCache } from "./cliTools";
 import { clearModelsCache } from "./models";
 import { readSettingsFile, resolveKeys, type Env, type SettingsFile } from "./settings";
 import { clearToolVersionCache, getToolStatuses, type ToolStatusOptions } from "./toolStatus";
@@ -31,11 +32,13 @@ export async function getSettingsResponse({
     if (reveal) keys[name].value = key.value;
   }
   const tools = await getToolStatuses({ ...toolOptions, settings: file });
-  return { keys, tools, webSearch: resolved.gateway !== null };
+  return { keys, tools, webSearch: resolved.gateway !== null, setupDone: file.setupDone === true };
 }
 
-// After a change, the next model list, tool search and version reflect it.
+// After a change, or when the host asks to check again, the next model list,
+// tool search and version reflect what is on the machine now.
 export function clearSettingsCaches(): void {
   clearModelsCache();
+  clearCliToolCache();
   clearToolVersionCache();
 }

@@ -181,6 +181,7 @@ The target is a minimal, high-quality desktop tool in the vein of ChatGPT, Curso
 
 ### Behavior
 
+- **First run.** When no API key is set anywhere, the setup is not marked done, and sample mode is not forced, the model list answers with `needsSetup` and the app opens a three-step dialog: Coding agents (Claude Code and Codex as found on the machine, with install commands and a path field for one that is not found, and Check again), API key (a link to get a Vercel AI Gateway key and the key field), and Ready (what is in place). Closing it by any route saves `setupDone` in the settings file, so it shows once per machine. Everything in it is also in Settings.
 - A new table opens with one agent per default model (Claude Code and Codex when they are installed, otherwise one model per maker from the gateway), the Summarizer arbiter, Group interaction, and the first-message composer. Its title is "Untitled conversation" until the first message is sent, when it becomes the first few words of that message. The title can be edited by clicking it.
 - Replies stream as they arrive. The thread stays scrolled to the newest content unless the user has scrolled up, in which case a "Scroll to newest" button appears.
 - Tables save to localStorage as they change. Reopening a table that was running shows its last state with the round marked stopped.

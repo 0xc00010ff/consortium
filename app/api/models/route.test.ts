@@ -48,6 +48,7 @@ describe("GET /api/models in mock mode", () => {
       "spacexai/grok-4.7",
     ]);
     expect(body.defaults.arbiter).toBe("anthropic/claude-opus-5.5");
+    expect(body.needsSetup).toBe(true);
   });
 
   it("uses the public list when it can be fetched", async () => {
@@ -76,6 +77,7 @@ describe("GET /api/models in mock mode", () => {
     process.env.CONSORTIUM_MOCK = "1";
     const body = (await (await GET()).json()) as ModelsResponse;
     expect(body.mock).toBe(true);
+    expect(body.needsSetup).toBeFalsy();
   });
 });
 
@@ -97,6 +99,7 @@ describe("GET /api/models with Claude Code installed", () => {
         },
       ],
       defaults: { seats: ["cli/claude-code"], arbiter: "cli/claude-code" },
+      needsSetup: true,
     });
   });
 

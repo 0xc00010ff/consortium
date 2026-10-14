@@ -4,7 +4,9 @@
 // the models of those makers. Without any key the tools are the whole list.
 // With no key and neither tool, or with CONSORTIUM_MOCK=1, it returns
 // mock: true with the gateway's public model list, or a built-in list when
-// offline. Keys come from the settings file or the environment.
+// offline. Keys come from the settings file or the environment. On a fresh
+// install, with no key, the setup not done and CONSORTIUM_MOCK not set, it
+// adds needsSetup: true so the app shows the first-run setup dialog.
 
 import { getModelsResponse } from "@/lib/server/models";
 

@@ -13,12 +13,18 @@
 // first in the list, and without any key they are the whole list. Claude Code
 // offers its model aliases, and Codex offers the OpenAI models from the short
 // list.
+//
+// On a fresh install the response also says needsSetup: true, so the app
+// shows the first-run setup dialog. That is when no key is set in the
+// settings file or the environment, the host has not finished or skipped the
+// setup, and CONSORTIUM_MOCK is not set. Installed tools do not change it,
+// since the dialog's first step shows the tools that were found.
 
 import type { Maker, ModelInfo, ModelsResponse } from "@/lib/types";
 import { CLAUDE_CODE_ID, clearCliToolCache, cliModelInfos, getCliTools, type CliTool } from "./cliTools";
 import { isForcedMock } from "./env";
 import { gatewayProvider } from "./gatewayClient";
-import { makersWithKeys, resolveKeys, type ResolvedKeys } from "./settings";
+import { hasAnyModelKey, makersWithKeys, readSettingsFile, resolveKeys, type ResolvedKeys, type SettingsFile } from "./settings";
 
 const CACHE_MS = 10 * 60 * 1000;
 const MAKER_ORDER: Maker[] = ["anthropic", "openai", "google", "xai"];
@@ -122,11 +128,12 @@ export interface ModelsOptions {
   now?: number;
   tools?: CliTool[]; // the installed tools; detected on this machine when absent
   keys?: ResolvedKeys; // the keys in use; read from the settings and the environment when absent
+  settings?: SettingsFile; // the settings file; read from disk when absent
 }
 
 // The gateway part of the list is cached for 10 minutes. The tool entries are
 // added on every request, so a model seen in a real call shows at once.
-export async function getModelsResponse({ now = Date.now(), tools, keys }: ModelsOptions = {}): Promise<ModelsResponse> {
+export async function getModelsResponse({ now = Date.now(), tools, keys, settings }: ModelsOptions = {}): Promise<ModelsResponse> {
   const found = tools ?? getCliTools(now);
 
   // CONSORTIUM_MOCK=1: sample replies for everything, so no key is read.
@@ -135,7 +142,8 @@ export async function getModelsResponse({ now = Date.now(), tools, keys }: Model
     return withTools(sample, found);
   }
 
-  const resolved = keys ?? resolveKeys();
+  const file = settings ?? readSettingsFile();
+  const resolved = keys ?? resolveKeys(file);
   const gatewayKey = resolved.gateway?.value;
   if (gatewayKey) {
     const base = await gatewayList(now, gatewayKey);
@@ -152,7 +160,8 @@ export async function getModelsResponse({ now = Date.now(), tools, keys }: Model
 
   // No key: the installed tools are the whole list. The public gateway list is
   // read only to offer Codex its models. With no tools, the app stays in
-  // sample mode.
+  // sample mode. Either way the first-run setup is offered until it is done.
+  const needsSetup = !hasAnyModelKey(resolved) && file.setupDone !== true;
   if (found.length > 0) {
     const installed = cliModelInfos(found);
     const ids = installed.map((m) => m.id);
@@ -160,9 +169,10 @@ export async function getModelsResponse({ now = Date.now(), tools, keys }: Model
       mock: false,
       models: installed,
       defaults: { seats: ids, arbiter: found.some((t) => t.id === CLAUDE_CODE_ID) ? CLAUDE_CODE_ID : ids[0] },
+      needsSetup,
     };
   }
-  return sampleList(now);
+  return { ...(await sampleList(now)), needsSetup };
 }
 
 // The installed tools come first and are the default agents, since they run
