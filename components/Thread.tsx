@@ -53,6 +53,10 @@ export function Thread({
   // arbiter replies start open, so a reply with no entry follows its kind.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggleExpanded = useCallback((id: string, next: boolean) => setExpanded((e) => ({ ...e, [id]: next })), []);
+  // Replies the host hid down to their header. A reply with no entry is open.
+  // This lives here so the choice survives a round being closed and reopened.
+  const [folded, setFolded] = useState<Record<string, boolean>>({});
+  const toggleFolded = useCallback((id: string, next: boolean) => setFolded((f) => ({ ...f, [id]: next })), []);
 
   const last = table.rounds.length;
   const busy = isBusy(table);
@@ -83,6 +87,8 @@ export function Thread({
                   highlightReplyId={highlightReplyId}
                   expanded={expanded}
                   onToggleExpanded={toggleExpanded}
+                  folded={folded}
+                  onToggleFolded={toggleFolded}
                   onHold={hold}
                   onToggle={finished ? () => setToggled((t) => ({ ...t, [key]: !collapsed })) : undefined}
                   onOpenPrivate={onOpenPrivate}
@@ -115,6 +121,8 @@ function RoundView({
   highlightReplyId,
   expanded,
   onToggleExpanded,
+  folded,
+  onToggleFolded,
   onHold,
   onToggle,
   onOpenPrivate,
@@ -129,6 +137,8 @@ function RoundView({
   highlightReplyId: string | null;
   expanded: Record<string, boolean>;
   onToggleExpanded: (id: string, next: boolean) => void;
+  folded: Record<string, boolean>;
+  onToggleFolded: (id: string, next: boolean) => void;
   onHold: () => void;
   onToggle?: () => void;
   onOpenPrivate: (participantId: string) => void;
@@ -214,6 +224,8 @@ function RoundView({
                 highlighted={reply.id === highlightReplyId}
                 expanded={expanded[reply.id]}
                 onToggleExpanded={onToggleExpanded}
+                folded={folded[reply.id]}
+                onToggleFolded={onToggleFolded}
                 onHold={onHold}
                 onVote={onVote}
                 onReplyPrivately={seatId && canOpen(seatId, atTable) ? () => onOpenPrivate(seatId) : undefined}
@@ -237,6 +249,8 @@ function RoundView({
                 highlighted={reply.id === highlightReplyId}
                 expanded={expanded[reply.id]}
                 onToggleExpanded={onToggleExpanded}
+                folded={folded[reply.id]}
+                onToggleFolded={onToggleFolded}
                 onHold={onHold}
                 onVote={onVote}
                 onReplyPrivately={canOpen(id, atTable) ? () => onOpenPrivate(id) : undefined}
@@ -283,6 +297,8 @@ function ReplyView({
   highlighted,
   expanded: choice,
   onToggleExpanded,
+  folded = false,
+  onToggleFolded,
   onHold,
   onVote,
   onReplyPrivately,
@@ -297,6 +313,8 @@ function ReplyView({
   highlighted?: boolean;
   expanded?: boolean; // the host's choice, if they pressed expand or collapse
   onToggleExpanded: (id: string, next: boolean) => void;
+  folded?: boolean; // the host hid the reply down to its header
+  onToggleFolded: (id: string, next: boolean) => void;
   onHold: () => void;
   onVote: (replyId: string, delta: number) => void;
   onReplyPrivately?: () => void;
@@ -316,7 +334,7 @@ function ReplyView({
 
   // Whether the text is taller than the cap. A ResizeObserver reports the
   // first size as soon as it starts, again as the text streams in, and when
-  // the cap itself changes size.
+  // the cap itself changes size. It starts again when a hidden reply is shown.
   useEffect(() => {
     const inner = innerRef.current;
     const clamp = clampRef.current;
@@ -328,22 +346,32 @@ function ReplyView({
     observer.observe(inner);
     observer.observe(clamp);
     return () => observer.disconnect();
-  }, []);
+  }, [folded]);
 
   useEffect(() => () => {
     if (copyTimer.current) clearTimeout(copyTimer.current);
   }, []);
 
-  function toggle() {
-    onHold();
-    // Collapsing a reply whose top is scrolled past brings its header back into view.
+  // Making a reply shorter when its top is scrolled past brings its header
+  // back into view.
+  function revealHeader() {
     const article = articleRef.current;
     const scroller = article?.closest(".thread-scroll");
-    if (expanded && article && scroller) {
-      const offset = article.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
-      if (offset < 0) scroller.scrollTop += offset;
-    }
+    if (!article || !scroller) return;
+    const offset = article.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
+    if (offset < 0) scroller.scrollTop += offset;
+  }
+
+  function toggle() {
+    onHold();
+    if (expanded) revealHeader();
     onToggleExpanded(reply.id, !expanded);
+  }
+
+  function toggleFolded() {
+    onHold();
+    if (!folded) revealHeader();
+    onToggleFolded(reply.id, !folded);
   }
 
   async function copyText() {
@@ -372,83 +400,97 @@ function ReplyView({
   return (
     <article
       ref={articleRef}
-      className={cx("msg reply", kind === "arbiter" && "arbiter", highlighted && "hl")}
+      className={cx("msg reply", kind === "arbiter" && "arbiter", highlighted && "hl", folded && "folded")}
       aria-busy={reply.status === "streaming" || undefined}
     >
       {avatar}
       <div className="msg-main">
         <div className="msg-h">
           <span className="msg-n">{name}</span>
+          <button
+            type="button"
+            className="msg-fold"
+            aria-expanded={!folded}
+            aria-controls={bodyId}
+            aria-label={folded ? `Show the reply from ${name}` : `Hide the reply from ${name}`}
+            title={folded ? "Show the reply" : "Hide the reply"}
+            onClick={toggleFolded}
+          >
+            <Icon name={folded ? "chevronRight" : "chevronDown"} size={12} />
+          </button>
           <span className="msg-m">{meta}</span>
           <ReplyState status={reply.status} kind={kind} waitsFor={waitsFor} />
         </div>
-        <ToolChips tools={reply.tools} />
-        <div
-          ref={clampRef}
-          id={bodyId}
-          className={cx("clamp", capped && overflows && "faded")}
-          style={capped ? { maxHeight: `${CAP_REM}rem` } : undefined}
-        >
-          <div ref={innerRef}>{reply.text ? <Markdown text={reply.text} className="msg-text" /> : null}</div>
-        </div>
-        {reply.status === "error" ? <ReplyError error={reply.error} hasText={Boolean(reply.text)} kind={kind} /> : null}
-        {reply.finishReason === "length" && reply.status === "done" ? (
-          <p className="msg-quiet">The reply reached the length limit and was cut off.</p>
-        ) : null}
-        {reply.finishReason === "max-turns" && reply.status === "done" ? (
-          <p className="msg-quiet">The reply stopped at the limit on tool calls.</p>
-        ) : null}
-        {privateChip}
-        <div className={cx("tbar", (choice === true || copy !== "idle") && "keep")}>
-          {canExpand ? (
-            <button
-              type="button"
-              className="ibtn sm"
-              aria-expanded={expanded}
-              aria-controls={bodyId}
-              aria-label={expanded ? "Collapse" : "Expand"}
-              title={expanded ? "Collapse" : "Expand"}
-              onClick={toggle}
+        {folded ? null : (
+          <div className="msg-body" id={bodyId}>
+            <ToolChips tools={reply.tools} />
+            <div
+              ref={clampRef}
+              className={cx("clamp", capped && overflows && "faded")}
+              style={capped ? { maxHeight: `${CAP_REM}rem` } : undefined}
             >
-              <Icon name={expanded ? "chevronUp" : "chevronDown"} />
-            </button>
-          ) : null}
-          {canCopy ? (
-            <button
-              type="button"
-              className="ibtn sm"
-              aria-label="Copy"
-              title={copy === "done" ? "Copied" : copy === "failed" ? "Could not copy. Select the text and copy it instead." : "Copy"}
-              onClick={() => void copyText()}
-            >
-              <Icon name={copy === "done" ? "check" : copy === "failed" ? "alert" : "copy"} />
-            </button>
-          ) : null}
-          {onReplyPrivately ? (
-            <button
-              type="button"
-              className="ibtn sm"
-              aria-label="Reply privately"
-              title="Reply privately"
-              onClick={onReplyPrivately}
-            >
-              <Icon name="message" />
-            </button>
-          ) : null}
-          <span className="tbar-space" />
-          {stats ? (
-            <span className="tbar-stats mono" title={usageTitle}>
-              {duration}
-              {usage ? <span className="tbar-usage">{duration ? ` · ${usage}` : usage}</span> : null}
-            </span>
-          ) : null}
-          {reply.status === "done" || reply.status === "error" ? (
-            <Votes votes={reply.votes ?? 0} onVote={(delta) => onVote(reply.id, delta)} />
-          ) : null}
-          <span className="sr-only" role="status">
-            {copy === "done" ? "Copied" : copy === "failed" ? "Could not copy" : ""}
-          </span>
-        </div>
+              <div ref={innerRef}>{reply.text ? <Markdown text={reply.text} className="msg-text" /> : null}</div>
+            </div>
+            {reply.status === "error" ? <ReplyError error={reply.error} hasText={Boolean(reply.text)} kind={kind} /> : null}
+            {reply.finishReason === "length" && reply.status === "done" ? (
+              <p className="msg-quiet">The reply reached the length limit and was cut off.</p>
+            ) : null}
+            {reply.finishReason === "max-turns" && reply.status === "done" ? (
+              <p className="msg-quiet">The reply stopped at the limit on tool calls.</p>
+            ) : null}
+            {privateChip}
+            <div className={cx("tbar", (choice === true || copy !== "idle") && "keep")}>
+              {canExpand ? (
+                <button
+                  type="button"
+                  className="ibtn sm"
+                  aria-expanded={expanded}
+                  aria-controls={bodyId}
+                  aria-label={expanded ? "Collapse" : "Expand"}
+                  title={expanded ? "Collapse" : "Expand"}
+                  onClick={toggle}
+                >
+                  <Icon name={expanded ? "chevronUp" : "chevronDown"} />
+                </button>
+              ) : null}
+              {canCopy ? (
+                <button
+                  type="button"
+                  className="ibtn sm"
+                  aria-label="Copy"
+                  title={copy === "done" ? "Copied" : copy === "failed" ? "Could not copy. Select the text and copy it instead." : "Copy"}
+                  onClick={() => void copyText()}
+                >
+                  <Icon name={copy === "done" ? "check" : copy === "failed" ? "alert" : "copy"} />
+                </button>
+              ) : null}
+              {onReplyPrivately ? (
+                <button
+                  type="button"
+                  className="ibtn sm"
+                  aria-label="Reply privately"
+                  title="Reply privately"
+                  onClick={onReplyPrivately}
+                >
+                  <Icon name="message" />
+                </button>
+              ) : null}
+              <span className="tbar-space" />
+              {stats ? (
+                <span className="tbar-stats mono" title={usageTitle}>
+                  {duration}
+                  {usage ? <span className="tbar-usage">{duration ? ` · ${usage}` : usage}</span> : null}
+                </span>
+              ) : null}
+              {reply.status === "done" || reply.status === "error" ? (
+                <Votes votes={reply.votes ?? 0} onVote={(delta) => onVote(reply.id, delta)} />
+              ) : null}
+              <span className="sr-only" role="status">
+                {copy === "done" ? "Copied" : copy === "failed" ? "Could not copy" : ""}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
     </article>
   );
