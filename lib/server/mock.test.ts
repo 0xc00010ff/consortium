@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Round, SeatId, Table } from "@/lib/types";
 import { buildArbiterRequest, buildPrivateRequest, buildSeatRequest } from "@/lib/engine/context";
-import { doneReply, makeArbiter, makeTable } from "@/lib/engine/test-helpers";
+import { doneReply, makeArbiter, makeTable, requestText } from "@/lib/engine/test-helpers";
 import { writeMockReply } from "./mock";
 
 const TOPIC = "How should a small team plan its first product launch?";
@@ -101,6 +101,32 @@ describe("mock private replies", () => {
     };
     const text = writeMockReply(buildPrivateRequest(table, "B")).text;
     expect(text).toContain('You asked "What would you cut first".');
+  });
+
+  it("in a shared thread answer the host's last message in their own thread, not another one", () => {
+    let table = playRound(makeTable(), TOPIC);
+    table = {
+      ...table,
+      privateThreads: {
+        A: [
+          { id: "p0", role: "host", text: "Is this for A only?", status: "done", tools: [], afterRound: 1, createdAt: 0 },
+          { id: "p1", role: "seat", text: "It is shared.", status: "done", tools: [], afterRound: 1, createdAt: 0 },
+        ],
+        B: [
+          { id: "p2", role: "host", text: "What would you cut first?", status: "done", tools: [], afterRound: 1, createdAt: 0 },
+          { id: "p3", role: "seat", text: "", status: "queued", tools: [], afterRound: 1, createdAt: 0 },
+        ],
+      },
+      threadPrivacy: { A: "shared", B: "shared" },
+    };
+    const request = buildPrivateRequest(table, "B");
+    // A's thread follows B's own in the transcript.
+    expect(requestText(request)).toContain("**Host:** What would you cut first?\n\n### Side conversation between the host and Agent A");
+    for (const hinted of [request, { ...request, mockHint: undefined }]) {
+      const text = writeMockReply(hinted).text;
+      expect(text).toContain('You asked "What would you cut first".');
+      expect(text).not.toContain("This stays between us");
+    }
   });
 
   it("from an arbiter answer as the arbiter and say where the agents stand", () => {

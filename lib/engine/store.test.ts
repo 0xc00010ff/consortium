@@ -295,11 +295,52 @@ describe("private conversations", () => {
     expect(requestText(last)).toContain("**Host:** Why that?\n\n**You:** Agent B says hello in round 1.\n\n**Host:** And then?");
   });
 
-  it("is carried into the next round for that seat only", async () => {
+  it("starts shared, so the other agents read it in the next round", async () => {
+    const { speak, calls } = echo(1);
+    const store = createTableStore(makeTable({ arbiters: [makeArbiter(1)] }), speak);
+    await store.sendRound(message("Start"));
+    await store.sendPrivate("C", message("Open question"));
+    expect(store.getTable().threadPrivacy).toEqual({ C: "shared" });
+
+    const before = calls.length;
+    await store.sendRound(message("Next"));
+    const round2 = calls.slice(before);
+    expect(round2).toHaveLength(5);
+    for (const call of round2) {
+      const text = requestText(call.request);
+      expect(text).toContain("**Host:** Open question");
+      if (call.request.mockHint?.seatId === "C") expect(text).toContain("### Side conversation between the host and you, after round 1\n\n");
+      else expect(text).toContain("### Side conversation between the host and Agent C, after round 1\n\n**Host:** Open question\n\n**Agent C:** Agent C says hello in round 1.");
+    }
+  });
+
+  it("marks only a new thread shared, and setThreadPrivacy changes it at any time", async () => {
+    const { speak } = echo(1);
+    const store = createTableStore(makeTable(), speak);
+    store.setThreadPrivacy("B", "private");
+    await store.sendPrivate("B", message("Before round 1"));
+    expect(store.getTable().threadPrivacy).toEqual({ B: "private" });
+
+    const gate = deferred();
+    const slow = createTableStore(makeTable(), scriptedSpeak(() => gate.promise.then(() => "Done.")).speak);
+    const pending = slow.sendPrivate("A", message("Hi"));
+    expect(slow.getTable().threadPrivacy).toEqual({ A: "shared" });
+    slow.setThreadPrivacy("A", "private");
+    expect(slow.getTable().threadPrivacy).toEqual({ A: "private" });
+    gate.resolve();
+    await pending;
+    await slow.sendPrivate("A", message("Again"));
+    expect(slow.getTable().threadPrivacy).toEqual({ A: "private" });
+    slow.setThreadPrivacy("A", "shared");
+    expect(slow.getTable().threadPrivacy).toEqual({ A: "shared" });
+  });
+
+  it("when private, is carried into the next round for that seat only", async () => {
     const { speak, calls } = echo(1);
     const store = createTableStore(makeTable(), speak);
     await store.sendRound(message("Start"));
     await store.sendPrivate("C", message("Just between us"));
+    store.setThreadPrivacy("C", "private");
     const before = calls.length;
     await store.sendRound(message("Next"));
     const round2 = calls.slice(before, before + 4);
@@ -345,10 +386,11 @@ describe("private conversations", () => {
     expect(store.getTable().privateThreads).toEqual({});
   });
 
-  it("with an arbiter is carried into that arbiter's next round only", async () => {
+  it("with an arbiter, when private, is carried into that arbiter's next round only", async () => {
     const { speak, calls } = echo(1);
     const store = createTableStore(makeTable({ seats: makeSeats(2), arbiters: [makeArbiter(1), makeArbiter(2)] }), speak);
     await store.sendRound(message("Start"));
+    store.setThreadPrivacy("arbiter-2", "private");
     await store.sendPrivate("arbiter-2", message("Just between us"));
     const before = calls.length;
     await store.sendRound(message("Next"));
@@ -419,13 +461,21 @@ describe("edits", () => {
     await store.sendPrivate("B", message("Hello B"));
     await store.sendPrivate("C", message("Hello C"));
     const [a, , c] = store.getTable().seats;
+    store.setThreadPrivacy("C", "private");
     store.edit({ seats: [a, c] });
     expect(Object.keys(store.getTable().privateThreads)).toEqual(["C"]);
+    expect(store.getTable().threadPrivacy).toEqual({ C: "private" });
 
     store.edit({ seats: [] });
     expect(store.getTable().seats.map((s) => s.id)).toEqual(["A", "C"]);
     store.edit({ title: "  " });
     expect(store.getTable().title).toBe("Untitled conversation");
+  });
+
+  it("merge who reads each side conversation, and ignore unknown values", () => {
+    const store = createTableStore(makeTable({ threadPrivacy: { A: "private" } }), echo().speak);
+    store.edit({ threadPrivacy: { B: "shared", C: "secret" as never } });
+    expect(store.getTable().threadPrivacy).toEqual({ A: "private", B: "shared" });
   });
 
   it("delete a removed arbiter's private thread, and keep the others", async () => {
@@ -566,6 +616,7 @@ describe("rewind", () => {
     expect(table.rounds.map((r) => r.number)).toEqual([1]);
     expect(table.privateThreads.B?.map((m) => m.text)).toEqual(["After one", "Agent B says hello in round 1."]);
     expect(table.privateThreads.C).toBeUndefined();
+    expect(table.threadPrivacy).toEqual({ B: "shared", C: "shared" });
     expect(table.title).toBe("Pricing");
 
     await store.sendRound(message("Second, again"));

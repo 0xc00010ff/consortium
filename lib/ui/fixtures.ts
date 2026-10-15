@@ -14,6 +14,7 @@ import type {
   Table,
   TableEdit,
   TableStore,
+  ThreadPrivacy,
   ToolActivity,
 } from "@/lib/types";
 import { SUMMARIZER_INSTRUCTIONS, SUMMARIZER_NAME } from "@/lib/engine/table";
@@ -291,6 +292,7 @@ function groupFixture(): Table {
         ),
       ],
     },
+    threadPrivacy: { [TRACKER.id]: "shared", B: "private" },
   };
 }
 
@@ -641,6 +643,7 @@ function demoFixture(): Table {
         ),
       ],
     },
+    threadPrivacy: { B: "shared" },
   };
 }
 
@@ -654,7 +657,7 @@ const builders: Record<FixtureName, () => Table> = {
 
 // ---------- a store for previews ----------
 
-// Holds a fixture table. Edits, votes and rewinds apply, so the controls can
+// Holds a fixture table. Edits, votes, privacy switches and rewinds apply, so the controls can
 // be tried. Sending and stopping do nothing, because there is no engine behind it.
 function previewStore(table: Table): TableStore {
   let current = table;
@@ -678,6 +681,9 @@ function previewStore(table: Table): TableStore {
     edit(edit: TableEdit) {
       if (isBusy(current)) return;
       publish({ ...current, ...edit, updatedAt: Date.now() });
+    },
+    setThreadPrivacy(participantId: string, privacy: ThreadPrivacy) {
+      publish({ ...current, threadPrivacy: { ...current.threadPrivacy, [participantId]: privacy }, updatedAt: Date.now() });
     },
     vote(replyId: string, delta: number) {
       const bump = (r: Reply) => (r.id === replyId ? { ...r, votes: (r.votes ?? 0) + delta } : r);

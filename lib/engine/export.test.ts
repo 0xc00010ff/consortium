@@ -75,7 +75,7 @@ describe("tableToMarkdown", () => {
         "Ship the annual plan.",
         "### Tracker · Arbiter · Arbiter Model 1",
         "1. Guided first week. Raised by A.\n2. Annual plan. Raised by B.",
-        "### Private conversation with Agent B, after round 1",
+        "### Side conversation with Agent B, after round 1 (private)",
         "**Host:** What discount?",
         "**Agent B · GPT-6.1 Sol:** Two months free.",
         "## Round 2",
@@ -184,9 +184,9 @@ describe("tableToMarkdown", () => {
     expect(markdown).toContain("## Round 4\n\n*Interaction changed to Parallel for this round.*\n\n### Host");
     expect(markdown.match(/Interaction changed/g)).toHaveLength(2);
     expect(markdown).toContain("### Agent C · Gemini 3.1 Pro\n\nC in 1.\n\n### Agent A · Claude Sonnet 5.5");
-    expect(markdown.indexOf("Private conversation with Agent C")).toBeLessThan(markdown.indexOf("Private conversation with Agent A"));
+    expect(markdown.indexOf("Side conversation with Agent C")).toBeLessThan(markdown.indexOf("Side conversation with Agent A"));
   });
-  it("writes private conversations with arbiters after the agents' ones, in arbiter order", () => {
+  it("writes side conversations with arbiters after the agents' ones, in arbiter order, and marks the private ones", () => {
     const seats = makeSeats(2);
     const tracker = makeArbiter(1, { modelName: "Claude Haiku 5.5" });
     const second = makeArbiter(2);
@@ -219,18 +219,19 @@ describe("tableToMarkdown", () => {
         "arbiter-1": [message("p2", "host", "Who is ahead?"), message("p3", "seat", "Agent B is ahead.")],
         B: [message("p4", "host", "To B.")],
       },
+      threadPrivacy: { B: "shared", "arbiter-1": "private" },
     };
     const markdown = tableToMarkdown(table);
     expect(markdown).toContain(
       [
         "### Arbiter 2 · Arbiter · Arbiter Model 2",
         "Arbiter 2 in 1.",
-        "### Private conversation with Agent B, after round 1",
+        "### Side conversation with Agent B, after round 1",
         "**Host:** To B.",
-        "### Private conversation with Tracker, after round 1",
+        "### Side conversation with Tracker, after round 1 (private)",
         "**Host:** Who is ahead?",
         "**Tracker · Arbiter · Claude Haiku 5.5:** Agent B is ahead.",
-        "### Private conversation with Arbiter 2, after round 1",
+        "### Side conversation with Arbiter 2, after round 1 (private)",
         "**Host:** To the second.",
       ].join("\n\n"),
     );

@@ -11,8 +11,9 @@
 //   a seat agrees or disagrees with another seat by letter.
 // - Arbiter replies are a short numbered list of who holds which approach,
 //   who agrees with whom, and one open question.
-// - Private replies answer the host's last message. An arbiter's private
-//   reply also says where the agents stood in the last round.
+// - Replies in a side conversation answer the host's last message. An
+//   arbiter's reply on the side also says where the agents stood in the last
+//   round.
 // - With browsing on, some replies start with a web search or a page read.
 
 import type { MockHint, SeatId, SpeakEvent, SpeakRequest, ToolName } from "@/lib/types";
@@ -285,7 +286,7 @@ function readContext(request: SpeakRequest): Context {
 
 function inferHint(instructions: string, now: string): MockHint {
   const arbiter = instructions.startsWith("You are an arbiter");
-  const purpose = /talking with you privately/.test(now) ? "private" : arbiter ? "arbiter" : "seat";
+  const purpose = /talking with you (privately|on the side)/.test(now) ? "private" : arbiter ? "arbiter" : "seat";
   const round = Number(/Round (\d+)\./.exec(now)?.[1] ?? "1");
   const interaction = /You cannot read the other agents/.test(instructions) ? "independent" : "group";
   const arbiterName = arbiter ? (/You are an arbiter named (.+?) at a table/.exec(instructions)?.[1] ?? "Arbiter") : undefined;
@@ -334,11 +335,17 @@ function lastRoundNumber(transcript: string): number {
   return last;
 }
 
-// The last message the host sent in this seat's private conversation, and
-// how many the host has sent in that conversation.
+// The last message the host sent in this participant's own side
+// conversation, and how many the host has sent in its latest part. The block
+// ends at the next heading, since side conversations with others can follow.
 function lastPrivateMessage(transcript: string): { text: string; count: number } {
-  const start = transcript.lastIndexOf("### Private conversation between the host and you");
-  const block = start >= 0 ? transcript.slice(start) : transcript;
+  const heading = "### Side conversation between the host and you";
+  const start = transcript.lastIndexOf(heading);
+  let block = start >= 0 ? transcript.slice(start) : transcript;
+  if (start >= 0) {
+    const end = block.slice(heading.length).search(/\n\n#{1,3} /);
+    if (end >= 0) block = block.slice(0, heading.length + end);
+  }
   const messages = [...block.matchAll(/^\*\*Host:\*\* ([\s\S]*?)(?=\n\n\*\*You:\*\*|\n\n\*\*Host:\*\*|\n\n\*The host attached|\n\n##|(?![\s\S]))/gm)].map((m) =>
     m[1].trim(),
   );
@@ -492,11 +499,13 @@ function privateReply(ctx: Context): MockReply {
     ? `You asked "${asked}". My direct answer is that I would ${mine.short}, and keep the first step small enough to change course quickly.`
     : `Thank you, that detail is useful. Given what you said ("${asked}"), I would still ${mine.short}, but I would move faster on it.`;
   const second = count > 1 ? `That builds on what we discussed a moment ago. ${mine.check}` : mine.reason;
-  const close = pick(ctx.rand, [
-    "This stays between us. If you want the table to hear it, say so in your next note.",
-    "I can raise this with the table in the next round if you want.",
-    "",
-  ]);
+  const kept = /talking with you privately/.test(ctx.now);
+  const close = pick(
+    ctx.rand,
+    kept
+      ? ["This stays between us. If you want the table to hear it, say so in your next note.", "I can raise this with the table in the next round if you want.", ""]
+      : ["The others can read this from the next round, so I expect some of them to push back.", ""],
+  );
   return { text: [`${first}${toolNote(tools)}`, second, close].filter(Boolean).join("\n\n"), tools };
 }
 

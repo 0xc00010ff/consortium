@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelsResponse } from "@/lib/types";
-import { newArbiter, newSeat, newTable, SUMMARIZER_INSTRUCTIONS, titleFrom } from "./table";
+import { newArbiter, newSeat, newTable, SUMMARIZER_INSTRUCTIONS, threadPrivacy, titleFrom } from "./table";
 import { makeRound, makeTable } from "./test-helpers";
 
 const models: ModelsResponse = {
@@ -81,5 +81,22 @@ describe("new participants", () => {
     expect(first).toMatchObject({ id: "arbiter-1", name: "Arbiter 1", modelName: "Claude Haiku 5.5", browsing: false, instructions: "" });
     const second = newArbiter({ ...table, arbiters: [first] }, models.defaults.arbiter, models.models);
     expect(second).toMatchObject({ id: "arbiter-2", name: "Arbiter 2" });
+  });
+});
+
+describe("threadPrivacy", () => {
+  const said = { id: "p1", role: "host" as const, text: "Hi", status: "done" as const, tools: [], afterRound: 0, createdAt: 0 };
+
+  it("follows the host's choice when there is one", () => {
+    const table = makeTable({ privateThreads: { B: [said] }, threadPrivacy: { B: "shared", C: "private" } });
+    expect(threadPrivacy(table, "B")).toBe("shared");
+    expect(threadPrivacy(table, "C")).toBe("private");
+  });
+
+  it("keeps a thread held before the setting existed private, and starts a new one shared", () => {
+    const table = makeTable({ privateThreads: { B: [said], C: [] } });
+    expect(threadPrivacy(table, "B")).toBe("private");
+    expect(threadPrivacy(table, "C")).toBe("shared");
+    expect(threadPrivacy(table, "arbiter-1")).toBe("shared");
   });
 });

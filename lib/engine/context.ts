@@ -16,6 +16,11 @@
 // In a parallel round it reads none of it, and the host's message goes in the
 // "Now" section. In a round robin round the seats answer one after another,
 // so the current round is in the transcript with the replies given so far.
+//
+// The host can also talk with one agent or arbiter on the side. The reader
+// always reads its own side conversations. It reads the others' when the host
+// left them shared: an arbiter reads every shared one, and an agent reads them
+// in a Group round. Each one sits after the round it followed.
 
 import type {
   Arbiter,
@@ -32,6 +37,7 @@ import type {
   Turns,
 } from "@/lib/types";
 import { SEAT_LETTERS } from "@/lib/types";
+import { threadPrivacy } from "./table";
 
 export const ROUND_MAX_OUTPUT_TOKENS = 8000;
 export const PRIVATE_MAX_OUTPUT_TOKENS = 4000;
@@ -85,8 +91,8 @@ export function buildSeatRequest(table: Table, seatId: SeatId): SpeakRequest {
 }
 
 // The request for one arbiter in the current round. It includes this round's
-// seat replies and the replies of the arbiters before it, and this arbiter's
-// own private conversation with the host. It never includes anyone else's.
+// seat replies and the replies of the arbiters before it, this arbiter's own
+// side conversations with the host, and everyone's shared ones.
 export function buildArbiterRequest(table: Table, arbiterId: string): SpeakRequest {
   const round = currentRound(table);
   const arbiters = round.arbiters ?? table.arbiters;
@@ -117,9 +123,9 @@ export function buildArbiterRequest(table: Table, arbiterId: string): SpeakReque
   };
 }
 
-// The request for a reply in a private conversation with the host, from an
-// agent (by letter) or an arbiter (by id). The conversation, including the
-// host's latest message, is in the transcript after the round it followed.
+// The request for a reply in a side conversation with the host, from an agent
+// (by letter) or an arbiter (by id). The conversation, including the host's
+// latest message, is in the transcript after the round it followed.
 export function buildPrivateRequest(table: Table, participantId: string): SpeakRequest {
   const arbiter = table.arbiters.find((a) => a.id === participantId);
   if (arbiter) return buildArbiterPrivateRequest(table, arbiter);
@@ -136,7 +142,9 @@ export function buildPrivateRequest(table: Table, participantId: string): SpeakR
   const images: Attachment[] = [];
   const transcript = renderTranscript(table, { kind: "seat", seatId, interaction, turns }, null, images);
   const now = [
-    "The host is now talking with you privately. The other agents and the arbiters do not see this. Reply to the host's last message.",
+    threadPrivacy(table, seatId) === "private"
+      ? "The host is now talking with you privately. The other agents and the arbiters do not see this. Reply to the host's last message."
+      : "The host is now talking with you on the side. The other agents and the arbiters can read this conversation from the next round on. Reply to the host's last message.",
   ];
   if (images.length > 0) now.push(IMAGES_ABOVE);
 
@@ -151,16 +159,23 @@ export function buildPrivateRequest(table: Table, participantId: string): SpeakR
   };
 }
 
-// An arbiter's private reply. It reads everything, as in a round, with its
-// own private conversation placed after the rounds it followed.
+// An arbiter's reply on the side. It reads everything, as in a round, with
+// its own side conversations placed after the rounds they followed.
 function buildArbiterPrivateRequest(table: Table, arbiter: Arbiter): SpeakRequest {
   const last = table.rounds[table.rounds.length - 1];
   const interaction = last?.interaction ?? table.interaction;
 
   const images: Attachment[] = [];
   const transcript = renderTranscript(table, { kind: "arbiter", arbiterId: arbiter.id }, null, images);
-  const others = table.arbiters.length > 1 ? "The agents and the other arbiters do not see this." : "The agents do not see this.";
-  const now = [`The host is now talking with you privately. ${others} Reply to the host's last message.`];
+  const several = table.arbiters.length > 1;
+  const now =
+    threadPrivacy(table, arbiter.id) === "private"
+      ? [
+          `The host is now talking with you privately. ${several ? "The agents and the other arbiters do not see this." : "The agents do not see this."} Reply to the host's last message.`,
+        ]
+      : [
+          `The host is now talking with you on the side. ${several ? "The agents and the other arbiters" : "The agents"} can read this conversation from the next round on. Reply to the host's last message.`,
+        ];
   if (images.length > 0) now.push(IMAGES_ABOVE);
 
   return {
@@ -229,13 +244,14 @@ function seatInstructions(table: Table, seats: Seat[], seat: Seat, interaction: 
   }
   const hasArbiters = table.arbiters.length > 0 || table.rounds.some((r) => r.arbiterReplies.some((a) => a.status === "done"));
   if (interaction === "group" && (others.length > 0 || hasArbiters)) {
+    const sides = readsOthersSides(table, seat.id) ? ", and the side conversations the host had with them" : "";
     if (hasArbiters) {
       parts.push(
         "The table also has arbiters, which are AI models that answer after the agents and follow their own instructions from the host.",
       );
-      parts.push("You can read the other agents' replies and the arbiters' replies from earlier rounds.");
+      parts.push(`You can read the other agents' replies and the arbiters' replies from earlier rounds${sides}.`);
     } else {
-      parts.push("You can read the other agents' replies from earlier rounds.");
+      parts.push(`You can read the other agents' replies from earlier rounds${sides}.`);
     }
     parts.push("Respond to specific points when it helps, and say when you disagree. Do not repeat what others have already said.");
   } else if (interaction === "independent") {
@@ -258,6 +274,14 @@ function turnPosition(order: SeatId[], seatId: SeatId, label: Labeler): string {
   const previous = `Agent ${label(order[index - 1])}`;
   if (after === 0) return `You answer last, after ${previous}. You can read the replies given before yours in the current round.`;
   return `You answer after ${previous}. You can read the replies given before yours in the current round, and ${readers} will read your reply.`;
+}
+
+// Whether someone other than this seat has a shared side conversation with
+// at least one finished message, which a seat in a Group round reads.
+function readsOthersSides(table: Table, seatId: SeatId): boolean {
+  return Object.entries(table.privateThreads).some(
+    ([id, thread]) => id !== seatId && threadPrivacy(table, id) === "shared" && (thread ?? []).some((m) => m.status === "done"),
+  );
 }
 
 // The host's prompts, as paragraphs after the standing instructions.
@@ -317,18 +341,13 @@ type Viewer = { kind: "seat"; seatId: SeatId; interaction: Interaction; turns: T
 // order they are numbered.
 function renderTranscript(table: Table, viewer: Viewer, current: number | null, images: Attachment[]): string {
   const out: string[] = [];
-  // The reader's own private conversation, and no one else's.
-  const privateGroups = new Map<number, PrivateMessage[]>();
-  const ownId = viewer.kind === "seat" ? viewer.seatId : viewer.arbiterId;
-  for (const message of table.privateThreads[ownId] ?? []) {
-    const group = privateGroups.get(message.afterRound) ?? [];
-    group.push(message);
-    privateGroups.set(message.afterRound, group);
-  }
+  const privateGroups = sideConversations(table, viewer);
   const renderPrivate = (afterRound: number) => {
     const group = privateGroups.get(afterRound);
     privateGroups.delete(afterRound);
-    if (group) out.push(...privateBlock(afterRound, group, images));
+    for (const [participantId, messages] of group ?? []) {
+      out.push(...privateBlock(table, viewer, participantId, afterRound, messages, images));
+    }
   };
 
   renderPrivate(0);
@@ -377,7 +396,48 @@ function replyBody(reply: Reply): string[] {
   return votes ? [reply.text.trim(), `*${votes}*`] : [reply.text.trim()];
 }
 
-function privateBlock(afterRound: number, messages: PrivateMessage[], images: Attachment[]): string[] {
+// The side conversations this reader reads, grouped by the round they
+// followed. In each group the reader's own comes first, then the agents' in
+// speaking order, then the arbiters' in arbiter order.
+function sideConversations(table: Table, viewer: Viewer): Map<number, Array<[string, PrivateMessage[]]>> {
+  const ownId = viewer.kind === "seat" ? viewer.seatId : viewer.arbiterId;
+  const readsShared = viewer.kind === "arbiter" || viewer.interaction === "group";
+  const order = [...table.seats.map((s) => s.id as string), ...table.arbiters.map((a) => a.id)];
+  const rank = (id: string) => (id === ownId ? -1 : order.includes(id) ? order.indexOf(id) : order.length);
+  const ids = Object.keys(table.privateThreads)
+    .filter((id) => id === ownId || (readsShared && threadPrivacy(table, id) === "shared"))
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+
+  const groups = new Map<number, Array<[string, PrivateMessage[]]>>();
+  for (const participantId of ids) {
+    const byRound = new Map<number, PrivateMessage[]>();
+    for (const message of table.privateThreads[participantId] ?? []) {
+      const list = byRound.get(message.afterRound) ?? [];
+      list.push(message);
+      byRound.set(message.afterRound, list);
+    }
+    for (const [afterRound, messages] of byRound) {
+      const group = groups.get(afterRound) ?? [];
+      group.push([participantId, messages]);
+      groups.set(afterRound, group);
+    }
+  }
+  return groups;
+}
+
+// One side conversation after one round, with only its finished messages.
+// The reader's own is "between the host and you", and says when the host
+// kept it private.
+function privateBlock(
+  table: Table,
+  viewer: Viewer,
+  participantId: string,
+  afterRound: number,
+  messages: PrivateMessage[],
+  images: Attachment[],
+): string[] {
+  const own = participantId === (viewer.kind === "seat" ? viewer.seatId : viewer.arbiterId);
+  const names = own ? { who: "you", speaker: "You" } : sideNames(table, participantId);
   const lines: string[] = [];
   for (const message of messages) {
     if (message.status !== "done") continue;
@@ -389,12 +449,30 @@ function privateBlock(afterRound: number, messages: PrivateMessage[], images: At
         images.push(...attachments);
       }
     } else {
-      lines.push(`**You:** ${message.text.trim()}`);
+      lines.push(`**${names.speaker}:** ${message.text.trim()}`);
     }
   }
   if (lines.length === 0) return [];
   const when = afterRound > 0 ? `after round ${afterRound}` : "before round 1";
-  return [`### Private conversation between the host and you, ${when}`, ...lines];
+  const kept = own && threadPrivacy(table, participantId) === "private" ? " (private)" : "";
+  return [`### Side conversation between the host and ${names.who}, ${when}${kept}`, ...lines];
+}
+
+// Who another participant's side conversation is with, for its heading, and
+// the name on that participant's messages: "Agent B (Skeptic)" and "Agent B",
+// or "Tracker (arbiter)" and "Tracker". Names come from the table as it is
+// now, then from the latest round that had the participant.
+function sideNames(table: Table, participantId: string): { who: string; speaker: string } {
+  const rounds = [...table.rounds].reverse();
+  if ((SEAT_LETTERS as readonly string[]).includes(participantId)) {
+    const seat = table.seats.find((s) => s.id === participantId) ?? rounds.flatMap((r) => r.seats ?? []).find((s) => s.id === participantId);
+    return { who: seat ? agentLabel(seat) : `Agent ${participantId}`, speaker: `Agent ${participantId}` };
+  }
+  const name =
+    table.arbiters.find((a) => a.id === participantId)?.name ??
+    rounds.flatMap((r) => r.arbiters ?? []).find((a) => a.id === participantId)?.name ??
+    "Arbiter";
+  return { who: `${name} (arbiter)`, speaker: name };
 }
 
 function hostBody(host: HostMessage, images: Attachment[]): string {

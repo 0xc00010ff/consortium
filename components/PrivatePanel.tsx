@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import type { PrivateMessage, Reply, Table } from "@/lib/types";
+import type { PrivateMessage, Reply, Table, ThreadPrivacy } from "@/lib/types";
 import { excerpt, formatDuration } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
 import { useStickToBottom } from "@/lib/ui/useStickToBottom";
@@ -9,13 +9,15 @@ import { latestReply, type Participant } from "@/lib/ui/view";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { ReplyError } from "./Thread";
-import { ArbiterAvatar, cx, HostAvatar, IconButton, type Resize, ResizeHandle, SeatAvatar, ToolChips } from "./ui";
+import { ArbiterAvatar, cx, HostAvatar, IconButton, type Resize, ResizeHandle, SeatAvatar, Switch, ToolChips } from "./ui";
 
 export function PrivatePanel({
   table,
   participant,
   busy,
   replying,
+  privacy,
+  onPrivacy,
   onSend,
   onStop,
   onClose,
@@ -23,8 +25,10 @@ export function PrivatePanel({
 }: {
   table: Table;
   participant: Participant; // the agent or arbiter, as it is at the table now
-  busy: boolean; // the table is busy with a round or another private reply
-  replying: boolean; // this agent or arbiter is replying privately
+  busy: boolean; // the table is busy with a round or another side-conversation reply
+  replying: boolean; // this agent or arbiter is replying in the side conversation
+  privacy: ThreadPrivacy; // who reads this side conversation
+  onPrivacy: (privacy: ThreadPrivacy) => void;
   onSend: (text: string) => boolean; // false when the store did not start the reply
   onStop: () => void;
   onClose: () => void;
@@ -38,11 +42,12 @@ export function PrivatePanel({
   const canSend = !busy && text.trim() !== "";
   const sub =
     p.kind === "arbiter"
-      ? `Arbiter · ${p.modelName} · Private conversation`
+      ? `Arbiter · ${p.modelName} · Side conversation`
       : p.hostName
-        ? `${p.label} · ${p.modelName} · Private conversation`
-        : `${p.label} · Private conversation`;
+        ? `${p.label} · ${p.modelName} · Side conversation`
+        : `${p.label} · Side conversation`;
   const only = p.hostName ? `${p.label} (${p.hostName})` : p.label;
+  const kept = privacy === "private";
 
   function send() {
     if (!canSend) return;
@@ -50,7 +55,7 @@ export function PrivatePanel({
   }
 
   return (
-    <aside className="panel private" aria-label={`Private conversation with ${p.label}`}>
+    <aside className="panel private" aria-label={`Side conversation with ${p.label}`}>
       {resize ? <ResizeHandle edge="start" label="Resize the panel" resize={resize} /> : null}
       <div className="panel-head tall">
         <ParticipantAvatar participant={p} />
@@ -58,12 +63,13 @@ export function PrivatePanel({
           <div className="panel-name">{p.name}</div>
           <div className="panel-sub">{sub}</div>
         </div>
-        <IconButton icon="x" label="Close the private conversation" onClick={onClose} />
+        <IconButton icon="x" label="Close the side conversation" onClick={onClose} />
       </div>
-      <p className="panel-status private-status">
-        <Icon name="lock" size={12} />
-        {`Only ${only} sees this conversation.`}
-      </p>
+      <div className="panel-status private-status">
+        <Icon name={kept ? "lock" : "message"} size={12} />
+        <span>{kept ? `Only ${only} reads this.` : "The other participants read this from the next round on."}</span>
+        <Switch checked={kept} onChange={(on) => onPrivacy(on ? "private" : "shared")} label="Private" />
+      </div>
 
       <div className="private-scroll" ref={scrollRef}>
         <div className="private-list" ref={contentRef}>

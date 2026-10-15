@@ -18,7 +18,7 @@ Open http://localhost:3000. On the first run a setup dialog finds Claude Code an
 
 ## How it works
 
-- **Rounds.** Every agent answers your message. Arbiters answer after the agents. Then it waits for you: add a note, reply privately to one agent, or press Next round.
+- **Rounds.** Every agent answers your message. Arbiters answer after the agents. Then it waits for you: add a note, talk to one agent on the side, or press Next round. The others read it next round unless you keep it private.
 - **Interaction.** Independent: each agent reads only you. Parallel: agents read each other and answer at once. Round robin: agents read each other and answer in order.
 - **Summarizer.** A new conversation starts with one arbiter that sums up the chat in a sentence per agent. Change it or remove it.
 - **Votes, presets, rewind.** Vote replies up or down, save a set of agents as a preset, or rewind to an earlier round.

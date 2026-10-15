@@ -1,7 +1,19 @@
 // Creating tables and participants, and small helpers the store and the
 // interface share.
 
-import type { Arbiter, Maker, ModelInfo, ModelsResponse, PrivateMessage, Reply, Seat, SeatId, Table, ToolActivity } from "@/lib/types";
+import type {
+  Arbiter,
+  Maker,
+  ModelInfo,
+  ModelsResponse,
+  PrivateMessage,
+  Reply,
+  Seat,
+  SeatId,
+  Table,
+  ThreadPrivacy,
+  ToolActivity,
+} from "@/lib/types";
 import { SEAT_LETTERS } from "@/lib/types";
 
 export const UNTITLED = "Untitled conversation";
@@ -149,6 +161,18 @@ function nextArbiterName(arbiters: Arbiter[]): string {
   let n = arbiters.length + 1;
   while (names.has(`Arbiter ${n}`)) n += 1;
   return `Arbiter ${n}`;
+}
+
+// ---------- Side conversations ----------
+
+// Who reads the host's side conversation with a participant. The store marks
+// a thread shared when it starts, so a missing entry means one of two things.
+// A thread that already has messages was held before this setting existed,
+// and stays private. A thread with no messages yet will start shared.
+export function threadPrivacy(table: Pick<Table, "privateThreads" | "threadPrivacy">, participantId: string): ThreadPrivacy {
+  const set = table.threadPrivacy?.[participantId];
+  if (set === "shared" || set === "private") return set;
+  return (table.privateThreads[participantId]?.length ?? 0) > 0 ? "private" : "shared";
 }
 
 // ---------- Interrupted work ----------

@@ -130,7 +130,7 @@ describe("mock mode flows, end to end", () => {
 
     const markdown = tableToMarkdown(store.getTable());
     expect(markdown).toContain("## Round 3");
-    expect(markdown).toContain("### Private conversation with Agent B, after round 2");
+    expect(markdown).toContain("### Side conversation with Agent B, after round 2\n\n");
     expect(markdown).toContain("### Tracker · Arbiter · Claude Opus 5.5");
   });
 

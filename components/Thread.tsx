@@ -18,6 +18,7 @@ import {
   seatIn,
   seatName,
 } from "@/lib/ui/view";
+import { threadPrivacy } from "@/lib/ui/engine";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { ArbiterAvatar, cx, HostAvatar, SeatAvatar, Thumbs, ToolChips } from "./ui";
@@ -36,7 +37,7 @@ export function Thread({
   stick,
 }: {
   table: Table;
-  openPrivateId: string | null; // the agent or arbiter whose private conversation is open
+  openPrivateId: string | null; // the agent or arbiter whose side conversation is open
   highlightReplyId: string | null;
   onOpenPrivate: (participantId: string) => void;
   onVote: (replyId: string, delta: number) => void;
@@ -145,18 +146,19 @@ function RoundView({
   onVote: (replyId: string, delta: number) => void;
   onRewind?: () => void;
 }) {
-  // Whether the host can open a private conversation from this round's reply:
+  // Whether the host can open a side conversation from this round's reply:
   // only from the latest finished round, with someone still at the table.
   const canOpen = (id: string, atTable: boolean) =>
     latest && round.status !== "running" && atTable && id !== openPrivateId;
   const privateChip = (id: string, atTable: boolean) => {
     const count = atTable ? privateAfter(table, id, round.number).length : 0;
     if (!count) return null;
+    const kept = threadPrivacy(table, id) === "private";
     return (
       <div className="acts">
         <button type="button" className="chip" onClick={() => onOpenPrivate(id)}>
-          <Icon name="lock" size={14} />
-          Private conversation · {plural(count, "message")}
+          <Icon name={kept ? "lock" : "message"} size={14} />
+          {kept ? "Private side conversation" : "Side conversation"} · {plural(count, "message")}
         </button>
       </div>
     );
@@ -468,8 +470,8 @@ function ReplyView({
                 <button
                   type="button"
                   className="ibtn sm"
-                  aria-label="Reply privately"
-                  title="Reply privately"
+                  aria-label={`Message ${name}`}
+                  title={`Message ${name}`}
                   onClick={onReplyPrivately}
                 >
                   <Icon name="message" />

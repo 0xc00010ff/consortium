@@ -29,7 +29,7 @@ function messageBusy(m: PrivateMessage): boolean {
   return m.status === "queued" || m.status === "streaming";
 }
 
-// The agent or arbiter whose private reply is in progress, if any.
+// The agent or arbiter whose side-conversation reply is in progress, if any.
 export function privateBusyParticipant(table: Table): string | null {
   for (const [id, thread] of Object.entries(table.privateThreads)) {
     if (thread?.some(messageBusy)) return id;
@@ -225,9 +225,9 @@ export function roundReplyCount(round: Round): number {
   return round.replies.length + round.arbiterReplies.length;
 }
 
-// ---------- private conversations ----------
+// ---------- side conversations ----------
 
-// The messages of an agent's or arbiter's private conversation that followed a given round.
+// The messages of an agent's or arbiter's side conversation that followed a given round.
 export function privateAfter(table: Table, participantId: string, round: number): PrivateMessage[] {
   return (table.privateThreads[participantId] ?? []).filter((m) => m.afterRound === round);
 }

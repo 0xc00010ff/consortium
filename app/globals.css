@@ -2073,9 +2073,16 @@ button.round-btn:focus-visible {
 
 .private-status {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
   padding: 8px 16px;
   border-bottom: 1px solid var(--border);
+}
+
+.private-status .switch {
+  margin-left: auto;
 }
 
 /* Web browsing as a toggle button: bordered when on, quiet when off. */

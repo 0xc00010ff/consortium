@@ -188,11 +188,21 @@ export interface Table {
   rounds: Round[];
   // Keyed by participant id: a SeatId, or an arbiter id such as "arbiter-1".
   privateThreads: Partial<Record<string, PrivateMessage[]>>;
+  // Who reads each side conversation, keyed like privateThreads. "shared":
+  // the other agents (in Group rounds) and the arbiters read it from the next
+  // round on. "private": only that participant and the host. The store marks
+  // a thread shared when it starts. A thread with messages and no entry was
+  // held before this setting existed, and stays private.
+  threadPrivacy?: Partial<Record<string, ThreadPrivacy>>;
   instructions?: string; // the host's prompt for every agent
 }
 
+export type ThreadPrivacy = "shared" | "private";
+
 // Edits the host can make between rounds. They apply from the next round.
-export type TableEdit = Partial<Pick<Table, "title" | "interaction" | "turns" | "seats" | "arbiters" | "instructions">>;
+export type TableEdit = Partial<
+  Pick<Table, "title" | "interaction" | "turns" | "seats" | "arbiters" | "instructions" | "threadPrivacy">
+>;
 
 // Owns one table in the browser. It publishes a new Table object after every
 // change, so React can read it with useSyncExternalStore.
@@ -208,6 +218,9 @@ export interface TableStore {
   sendPrivate(participantId: string, message: { text: string; attachments: Attachment[] }): Promise<void>;
   stop(): void; // aborts whatever is in progress; partial text is kept
   edit(edit: TableEdit): void; // refused while busy
+  // Sets who reads a side conversation. Allowed at any time; a model that
+  // starts after the change reads the table as it is then.
+  setThreadPrivacy(participantId: string, privacy: ThreadPrivacy): void;
   // Adds delta (1 or -1) to a reply's votes. Allowed at any time; a model
   // that starts after the vote reads it.
   vote(replyId: string, delta: number): void;

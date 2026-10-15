@@ -17,6 +17,7 @@ import type {
   Table,
   TableEdit,
   TableStore,
+  ThreadPrivacy,
 } from "@/lib/types";
 import { SEAT_LETTERS } from "@/lib/types";
 import { buildArbiterRequest, buildPrivateRequest, buildSeatRequest } from "./context";
@@ -116,6 +117,14 @@ class Store implements TableStore {
   edit = (edit: TableEdit): void => {
     if (this.job) return;
     this.commit((t) => applyEdit(t, edit));
+  };
+
+  // Allowed at any time, like a vote. A model that starts after the change
+  // reads the table as it is then.
+  setThreadPrivacy = (participantId: string, privacy: ThreadPrivacy): void => {
+    if (privacy !== "shared" && privacy !== "private") return;
+    if (this.table.threadPrivacy?.[participantId] === privacy) return;
+    this.commit((t) => ({ ...t, threadPrivacy: { ...t.threadPrivacy, [participantId]: privacy } }));
   };
 
   vote = (replyId: string, delta: number): void => {
@@ -227,10 +236,15 @@ class Store implements TableStore {
       afterRound,
       createdAt: now,
     };
-    this.commit((t) => ({
-      ...t,
-      privateThreads: { ...t.privateThreads, [participantId]: [...(t.privateThreads[participantId] ?? []), host, reply] },
-    }));
+    this.commit((t) => {
+      // A new side conversation starts shared, unless the host already chose.
+      const starts = !t.privateThreads[participantId]?.length && !t.threadPrivacy?.[participantId];
+      return {
+        ...t,
+        privateThreads: { ...t.privateThreads, [participantId]: [...(t.privateThreads[participantId] ?? []), host, reply] },
+        ...(starts ? { threadPrivacy: { ...t.threadPrivacy, [participantId]: "shared" as const } } : {}),
+      };
+    });
 
     try {
       const request = buildPrivateRequest(this.table, participantId);
@@ -450,7 +464,8 @@ function isOn(seat: Seat): boolean {
 // Deletes round `roundNumber` and every round after it, and the private
 // messages sent after any of those rounds, with agents and with arbiters.
 // Private messages sent before round `roundNumber` began stay, so the agent or
-// arbiter still has them when the host sends that round again.
+// arbiter still has them when the host sends that round again. Who reads each
+// side conversation stays as the host set it.
 export function rewindTable(table: Table, roundNumber: number): Table {
   const privateThreads: Table["privateThreads"] = {};
   for (const [participantId, thread] of Object.entries(table.privateThreads)) {
@@ -467,13 +482,20 @@ function isDefaultTitle(title: string): boolean {
 // Applies an edit made between rounds. Seats keep at most eight, at least
 // one, and unique letters; a new seat without a free letter of its own gets
 // the next free letter. A removed agent's or arbiter's private conversation
-// is deleted.
+// is deleted, along with who reads it.
 export function applyEdit(table: Table, edit: TableEdit): Table {
   const next: Table = { ...table };
   if (edit.title !== undefined) next.title = edit.title.trim() || UNTITLED;
   if (edit.interaction === "group" || edit.interaction === "independent") next.interaction = edit.interaction;
   if (edit.turns === "parallel" || edit.turns === "roundRobin") next.turns = edit.turns;
   if (edit.instructions !== undefined) next.instructions = edit.instructions;
+  if (edit.threadPrivacy) {
+    const merged: Table["threadPrivacy"] = { ...table.threadPrivacy };
+    for (const [participantId, privacy] of Object.entries(edit.threadPrivacy)) {
+      if (privacy === "shared" || privacy === "private") merged[participantId] = privacy;
+    }
+    next.threadPrivacy = merged;
+  }
 
   if (edit.seats && edit.seats.length > 0) {
     const wanted = edit.seats.slice(0, MAX_SEATS);
@@ -508,6 +530,13 @@ export function applyEdit(table: Table, edit: TableEdit): Table {
       if (thread && kept.has(participantId)) privateThreads[participantId] = thread;
     }
     next.privateThreads = privateThreads;
+    if (next.threadPrivacy) {
+      const privacy: Table["threadPrivacy"] = {};
+      for (const [participantId, value] of Object.entries(next.threadPrivacy)) {
+        if (value && kept.has(participantId)) privacy[participantId] = value;
+      }
+      next.threadPrivacy = privacy;
+    }
   }
   return next;
 }

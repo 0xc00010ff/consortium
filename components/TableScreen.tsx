@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Attachment, ModelsResponse, Table, TableStore } from "@/lib/types";
 import { downloadText, exportFilename } from "@/lib/ui/download";
 import { confirm } from "@/lib/ui/confirm";
-import { tableToMarkdown } from "@/lib/ui/engine";
+import { tableToMarkdown, threadPrivacy } from "@/lib/ui/engine";
 import { type Drawer, FOCUSABLE } from "@/lib/ui/layout";
 import { useStickToBottom } from "@/lib/ui/useStickToBottom";
 import { useTable } from "@/lib/ui/useStore";
@@ -50,7 +50,7 @@ export function TableScreen({
   const table = useTable(store);
   const busy = isBusy(table);
   const privateBusy = privateBusyParticipant(table);
-  // The agent or arbiter whose private conversation is open.
+  // The agent or arbiter whose side conversation is open.
   const [openId, setOpenId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   // A message handed back to the composer by a rewind. The number changes on
@@ -58,7 +58,7 @@ export function TableScreen({
   const [draft, setDraft] = useState<{ n: number; text: string; attachments: Attachment[] } | null>(null);
   const stick = useStickToBottom();
 
-  // When the right panel is a drawer, a private conversation stays open only
+  // When the right panel is a drawer, a side conversation stays open only
   // while that drawer is open.
   const panelOpen = panelDrawer ? drawer === "panel" : participantsOpen;
   if (panelDrawer && !panelOpen && openId !== null) setOpenId(null);
@@ -76,7 +76,7 @@ export function TableScreen({
     }
   }, [drawer]);
 
-  // An agent or arbiter removed from the table takes its private conversation with it.
+  // An agent or arbiter removed from the table takes its side conversation with it.
   const open = openId ? participantIn(undefined, table, openId) : undefined;
   const first = table.rounds.length === 0;
   const allOff = table.seats.every((s) => s.active === false);
@@ -116,7 +116,7 @@ export function TableScreen({
     const what = roundNumber === 1 ? "your first message" : `your note for round ${roundNumber}`;
     const back = message && (message.text || message.attachments.length) ? `, and ${what} goes back into the composer.` : ".";
     const privateLost = Object.values(table.privateThreads).some((t) => t?.some((m) => m.afterRound >= roundNumber));
-    const privateNote = privateLost ? ` Private messages sent after round ${roundNumber} will be deleted too.` : "";
+    const privateNote = privateLost ? ` Messages in side conversations sent after round ${roundNumber} will be deleted too.` : "";
     if (!(await confirm({ message: `Rewind to round ${roundNumber}? ${deleted}${back}${privateNote}`, action: "Rewind" }))) return;
     const host = store.rewind(roundNumber);
     if (!host) {
@@ -212,6 +212,8 @@ export function TableScreen({
           participant={open}
           busy={busy}
           replying={privateBusy === open.id}
+          privacy={threadPrivacy(table, open.id)}
+          onPrivacy={(p) => store.setThreadPrivacy(open.id, p)}
           onSend={sendPrivate}
           onStop={() => store.stop()}
           onClose={closePrivate}

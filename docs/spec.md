@@ -2,7 +2,7 @@
 
 Consortium is a group chat of AI models. In the interface a table is called a conversation; the code and this document keep the word table. You write a message, every agent at the table answers it, and you decide what happens next.
 
-Each exchange is a round. In a round, every agent answers, either all at the same time or one after another. Any arbiters, which are models with their own instructions, answer after the agents. Then the table waits for the host: a note, a private conversation with one agent or one arbiter, or the next round.
+Each exchange is a round. In a round, every agent answers, either all at the same time or one after another. Any arbiters, which are models with their own instructions, answer after the agents. Then the table waits for the host: a note, a side conversation with one agent or one arbiter, or the next round.
 
 One setting, Interaction, changes how a table works, with three values. Independent: each agent reads only the host. Parallel: the agents read each other and answer at the same time. Round robin: the agents read each other and answer one after another in seat order, each reading the replies given before it in the same round. The data model keeps this as two fields, `interaction` (group or independent) and `turns` (parallel or roundRobin); Independent is independent plus parallel, and the interface never offers independent plus round robin.
 
@@ -15,14 +15,14 @@ This document is the build plan. The shared types live in `lib/types.ts`. Follow
 - **Turns (the `turns` field).** With parallel, the default, every agent answers at the same time and none sees the others' replies from the current round. With roundRobin, the agents answer one at a time in seat order, each starting when the one before it has finished, and each reads the replies given before it in the same round. The arbiters answer after the last agent in both cases. A table without the field is parallel. The engine also accepts independent plus roundRobin (sequential, reading only the host) for older saved tables, but the interface does not offer it.
 - **Seat order.** `Table.seats` is in speaking order, and the host can reorder it. Letters stay with their agents, so the order can be C, A, B. The engine never sorts agents by letter: replies, transcripts and the export follow the order of the round's seats.
 - **Between rounds.** Nothing runs until the host presses Next round. The note can be empty.
-- **Private conversations.** From any reply, the host can open a conversation with that one agent or arbiter and exchange as many messages as they like. Only that participant reads it, and it carries it into later rounds. No other agent or arbiter ever sees it.
-- **Arbiters.** An arbiter is a participant with its own name and instructions. It answers after the agents in every round and after any earlier arbiter. The host can also talk with it privately, and it never reads anyone else's private conversation. A new table starts with one arbiter named Summarizer, on Claude Opus 5.5 when the list has it, with the instructions "Summarize the chat up to this point, and each Agent's most recent response, in one sentence each." The host can change or remove it.
+- **Side conversations.** From any reply, the host can open a side conversation with that one agent or arbiter and exchange as many messages as they like. That participant carries it into later rounds. From the next round on, the other agents read it in Group rounds and the arbiters read it in every round. The host can keep it private with the Private switch in the side conversation, and then only that participant reads it. A side conversation held before this setting existed stays private.
+- **Arbiters.** An arbiter is a participant with its own name and instructions. It answers after the agents in every round and after any earlier arbiter. The host can also talk with it on the side. It reads the side conversations the host had with the other participants, except those the host kept private. A new table starts with one arbiter named Summarizer, on Claude Opus 5.5 when the list has it, with the instructions "Summarize the chat up to this point, and each Agent's most recent response, in one sentence each." The host can change or remove it.
 - **Edits between rounds.** The host can change the title, the Interaction setting, the agents and their order, and the arbiters at any time the table is not busy. Changes apply from the next round. Past rounds keep the replies they have. An agent removed from the table keeps its old replies in the thread.
-- **Stop.** While a round or a private reply is running, the host can stop it. Partial text is kept, and the round is marked stopped. The next round can still start.
+- **Stop.** While a round or a reply in a side conversation is running, the host can stop it. Partial text is kept, and the round is marked stopped. The next round can still start.
 - **Host instructions.** The host can give instructions to every agent, and separate instructions to one agent. Every agent reads the first kind, and the arbiters read them too as context. Only that agent reads the second kind.
-- **Turning an agent off.** Between rounds, the host can turn an agent off. It stays at the table with its letter, its replies and its private conversation, and the others still read what it said. It does not answer rounds until the host turns it back on, and then it has read every round it sat out. The host can still talk with it privately.
+- **Turning an agent off.** Between rounds, the host can turn an agent off. It stays at the table with its letter, its replies and its side conversation, and the others still read what it said. It does not answer rounds until the host turns it back on, and then it has read every round it sat out. The host can still talk with it on the side.
 - **Votes.** The host can vote any reply up or down, more than once, at any time, even during a round. Once a reply has votes, the models are told what votes mean and see the score under that reply. Until then, votes are never mentioned.
-- **Rewind.** Between rounds, the host can go back to any round and send it again. That round and every round after it are deleted, along with the private messages sent after any of them, and the host's message from that round returns to the composer.
+- **Rewind.** Between rounds, the host can go back to any round and send it again. That round and every round after it are deleted, along with the side-conversation messages sent after any of them, and the host's message from that round returns to the composer.
 
 ## 2. Stack
 
@@ -35,8 +35,8 @@ This document is the build plan. The shared types live in `lib/types.ts`. Follow
 
 The browser owns the table. The server only calls models.
 
-- **Store (client, `lib/engine/store.ts`).** `createTableStore(table, speak)` holds a `Table`, runs rounds and private messages by calling a `SpeakFn`, and publishes a new `Table` object after every change. It throttles streaming text to about every 50 ms.
-- **Context builders (`lib/engine/context.ts`).** Pure functions that turn a `Table` into a `SpeakRequest` for an agent in a round, for an arbiter in a round, and for a private reply.
+- **Store (client, `lib/engine/store.ts`).** `createTableStore(table, speak)` holds a `Table`, runs rounds and side conversations by calling a `SpeakFn`, and publishes a new `Table` object after every change. It throttles streaming text to about every 50 ms.
+- **Context builders (`lib/engine/context.ts`).** Pure functions that turn a `Table` into a `SpeakRequest` for an agent in a round, for an arbiter in a round, and for a reply in a side conversation.
 - **Speak client (`lib/client/speak.ts`)** and **speak route (`app/api/speak/route.ts`)**: The route calls `streamText` with the browsing tools when the participant has browsing on, streams `SpeakEvent` lines, limits a call to 5 minutes, and in mock mode writes scripted replies.
 - **Models route (`app/api/models/route.ts`)**: unchanged, except the defaults field is now `{ seats, arbiter }`.
 - **Storage (`lib/ui/storage.ts`)**: a client of `/api/conversations`, with a throttled save, a five-second poll for changes made elsewhere, and a merge on conflict. The server keeps each conversation as a file under `~/.consortium/conversations/`.
@@ -53,19 +53,21 @@ Mock mode is on when `AI_GATEWAY_API_KEY` is not set, or when `CONSORTIUM_MOCK=1
 3. When every agent is done or failed, run the arbiters one after another. Each arbiter's request includes this round's agent replies and the replies of arbiters that came before it in this round.
 4. Mark the round done. A failed reply gets `status: "error"` and a plain message, and the round continues without it.
 
-`sendPrivate(participantId, { text, attachments })` talks with an agent, by its letter, or an arbiter, by its id such as "arbiter-1". `privateThreads` is keyed by the same id.
+`sendPrivate(participantId, { text, attachments })` holds a side conversation with an agent, by its letter, or an arbiter, by its id such as "arbiter-1". `privateThreads` is keyed by the same id.
 
 1. Reject with "Agent D is not at this table." or "The arbiter arbiter-2 is not at this table." when the participant is not at the table.
 2. Append a host `PrivateMessage` with `afterRound` set to the number of the last round, and a queued message for the participant. Its `role` is "seat" for an arbiter too.
-3. Build the participant's request from the table and the private thread, and stream the reply into that message. Stop and errors work as for a round.
+3. Build the participant's request from the table and its side conversation, and stream the reply into that message. Stop and errors work as for a round.
+
+`setThreadPrivacy(participantId, privacy)` sets `threadPrivacy[participantId]` to "shared" or "private", also while the table is busy. A model that starts after the change reads the table as it is then. The store marks a side conversation shared when it starts. A thread with messages and no entry was held before this setting existed, and counts as private. `threadPrivacy(table, participantId)` in `lib/engine/table.ts` applies this rule, and the interface uses it.
 
 `stop()` aborts all in-flight requests. Replies that were streaming keep their text, get `status: "error"` with the error "Stopped", and any running tool entry becomes an error with the detail "Stopped". A running round becomes `status: "stopped"`. In a round robin round, the agents still waiting for their turn are marked stopped the same way and never start.
 
-`edit(edit)` applies the edit to the table when it is not busy. Adding an agent gives it the next free letter. Removing an agent or an arbiter deletes its private thread. Renaming, reordering or switching off agents keeps every thread, including the arbiters'.
+`edit(edit)` applies the edit to the table when it is not busy. Adding an agent gives it the next free letter. Removing an agent or an arbiter deletes its side conversation. Renaming, reordering or switching off agents keeps every thread, including the arbiters'.
 
 `vote(replyId, delta)` adds `delta` to the reply's `votes`, also while the table is busy. A model that starts after the vote reads it.
 
-`rewind(roundNumber)` deletes that round, every round after it, and every private message with `afterRound >= roundNumber`, with agents and with arbiters, then returns the deleted round's host message. Private messages sent before that round began stay. The table's title stays, and the next round gets the number `roundNumber` again. It returns null and changes nothing while the table is busy or when there is no such round.
+`rewind(roundNumber)` deletes that round, every round after it, and every side-conversation message with `afterRound >= roundNumber`, with agents and with arbiters, then returns the deleted round's host message. Side-conversation messages sent before that round began stay. The table's title stays, and the next round gets the number `roundNumber` again. It returns null and changes nothing while the table is busy or when there is no such round.
 
 ## 5. What the models read
 
@@ -81,9 +83,9 @@ In a round robin round, the last sentence is replaced by the order, listing only
 - In the middle: "You answer after Agent C. You can read the replies given before yours in the current round, and the agent after you will read your reply."
 - Last: "You answer last, after Agent A. You can read the replies given before yours in the current round."
 
-"The agent after you" becomes "the agents after you" when more than one follows. In an Independent table only the order sentence is added. With fewer than two agents on, neither is said. A private reply's instructions follow the Turns setting of the last round, as they follow its Interaction setting.
+"The agent after you" becomes "the agents after you" when more than one follows. In an Independent table only the order sentence is added. With fewer than two agents on, neither is said. The instructions for a reply in a side conversation follow the Turns setting of the last round, as they follow its Interaction setting.
 
-For a Group table, add: "You can read the other agents' replies and the arbiters' replies from earlier rounds. Respond to specific points when it helps, and say when you disagree. Do not repeat what others have already said."
+For a Group table, add: "You can read the other agents' replies and the arbiters' replies from earlier rounds. Respond to specific points when it helps, and say when you disagree. Do not repeat what others have already said." When another agent or an arbiter has a shared side conversation, the first sentence ends "from earlier rounds, and the side conversations the host had with them."
 
 For an Independent table, add: "You cannot read the other agents. Answer the host directly."
 
@@ -121,15 +123,23 @@ Rendered as markdown, round by round:
 ...
 ### Tracker (arbiter)
 ...
-### Private conversation between the host and you, after round 1
+### Side conversation between the host and you, after round 1
 **Host:** ...
 **You:** ...
+### Side conversation between the host and Agent A, after round 1
+**Host:** ...
+**Agent A:** ...
+### Side conversation between the host and Tracker (arbiter), after round 1
+**Host:** ...
+**Tracker:** ...
 ## Round 2
 ### Host
 ...
 ```
 
-In an Independent table, leave out the other agents and the arbiters. In both cases, leave out replies that are not done. In a parallel round, leave out the current round entirely; its host message goes in the "Now" section. In a round robin round, render the current round like the earlier ones: the host's message with its images, then, in a Group table, the replies finished before this agent's turn. A reply with votes has a line such as `*Host votes: +2*` under it. A round in which some agents were off has a line such as `*Agents B and D sat out this round.*` under the host's message, so the models do not think those agents failed. In a round robin round, the line under the current round's host message is in the present tense: `*Agent B sits out this round.*` Agents are always called by letter, with the host's name for the agent when it has one (see Agent names). The host sees model names, the models do not. The private conversation block appears only in that agent's transcript, placed after the round it followed.
+In an Independent table, leave out the other agents and the arbiters. In both cases, leave out replies that are not done. In a parallel round, leave out the current round entirely; its host message goes in the "Now" section. In a round robin round, render the current round like the earlier ones: the host's message with its images, then, in a Group table, the replies finished before this agent's turn. A reply with votes has a line such as `*Host votes: +2*` under it. A round in which some agents were off has a line such as `*Agents B and D sat out this round.*` under the host's message, so the models do not think those agents failed. In a round robin round, the line under the current round's host message is in the present tense: `*Agent B sits out this round.*` Agents are always called by letter, with the host's name for the agent when it has one (see Agent names). The host sees model names, the models do not.
+
+Side conversations are placed after the round they followed. The reader's own comes first, under `### Side conversation between the host and you, after round 1`, with ` (private)` at the end of the heading when the host kept it private. In a Group round, the other agents' shared side conversations follow in speaking order, then the arbiters', under headings such as `### Side conversation between the host and Agent B (Skeptic), after round 1` and `### Side conversation between the host and Summarizer (arbiter), after round 1`. Their lines start with `**Host:**` and with the participant, such as `**Agent B:**` or `**Summarizer:**`. Another participant's side conversation is read only when the host kept it shared, and only from the next round on. An agent in an Independent round reads none of the others' side conversations.
 
 The "Now" section for a round says: "Round 3. The host wrote: ..." or, with an empty note, "Round 3. The host added no note. Continue from where the table left off." When some agents are off, "Agents B and D sit out this round." (or "Agent B sits out this round.") follows "Round 3." The arbiter's "Now" section says the same in the past tense: "Agents B and D sat out this round." In a round robin round, the host's message and its images are already in the transcript, so the "Now" section says whose turn it is and what to answer, without repeating the message:
 
@@ -137,17 +147,17 @@ The "Now" section for a round says: "Round 3. The host wrote: ..." or, with an e
 - A later agent in a Group table: "Round 3. It is your turn. Agent A has already replied this round. Reply to the host's message, and respond to Agent A where it helps." Only replies that finished are named. With none, or in an Independent table: "Round 3. It is your turn. Reply to the host's message."
 - With no note: "The host added no note. Continue from where the table left off" takes the place of "Reply to the host's message", with ", and respond to Agent A where it helps." when it applies. Images with no text and an empty first message follow the same wording as the parallel case, and the images are numbered in the transcript.
 
-For an agent's private reply it says: "The host is now talking with you privately. The other agents and the arbiters do not see this. Reply to the host's last message."
+For an agent's reply in a shared side conversation it says: "The host is now talking with you on the side. The other agents and the arbiters can read this conversation from the next round on. Reply to the host's last message." In a private one it says: "The host is now talking with you privately. The other agents and the arbiters do not see this. Reply to the host's last message."
 
 ### Transcript for an arbiter
 
-The same rendering with every agent and every arbiter included, in both Interaction settings. For the current round, include the agent replies and the earlier arbiters' replies. The arbiter's own private conversation with the host is included, placed after the round it followed under the heading "### Private conversation between the host and you, after round 1". Other private conversations, with agents or with other arbiters, are never included.
+The same rendering with every agent and every arbiter included, in both Interaction settings. For the current round, include the agent replies and the earlier arbiters' replies. The arbiter's own side conversation with the host is included, placed after the round it followed under the heading "### Side conversation between the host and you, after round 1", with " (private)" when the host kept it private. The shared side conversations of the agents, in speaking order, and of the other arbiters follow it, with the headings used for agents. Side conversations the host kept private with other participants are never included.
 
-An arbiter's private reply reads the whole transcript, with its own instructions as in a round, and its "Now" section says: "The host is now talking with you privately. The agents and the other arbiters do not see this. Reply to the host's last message." With no other arbiter at the table, the second sentence is "The agents do not see this."
+An arbiter's reply in a side conversation reads the whole transcript, with its own instructions as in a round. In a shared side conversation its "Now" section says: "The host is now talking with you on the side. The agents and the other arbiters can read this conversation from the next round on. Reply to the host's last message." With no other arbiter at the table, the second sentence is "The agents can read this conversation from the next round on." In a private one it says: "The host is now talking with you privately. The agents and the other arbiters do not see this. Reply to the host's last message." With no other arbiter at the table, the second sentence is "The agents do not see this."
 
 ### Length limits
 
-`maxOutputTokens` of 8000 for agents and arbiters and 4000 for private replies. The limits are generous because reasoning models count their thinking against them.
+`maxOutputTokens` of 8000 for agents and arbiters and 4000 for replies in side conversations. The limits are generous because reasoning models count their thinking against them.
 
 ## 6. Mock mode
 
@@ -155,7 +165,7 @@ Mock replies must make every flow work with no key, and read like plausible shor
 
 - Agent replies: two or three short paragraphs that mention the host's message. In a Group round after round 1, refer to another agent by letter. Vary by agent.
 - Arbiter replies: a short numbered list that reads like tracking or a summary, mentioning agents by letter.
-- Private replies: a direct answer to the host's last message. An arbiter's private reply also says where each agent stood in the last round.
+- Replies in side conversations: a direct answer to the host's last message. An arbiter's reply in a side conversation also says where each agent stood in the last round.
 - With browsing on, sometimes emit a tool-start and tool-end pair before the text.
 - Wait 400 to 1200 ms before the first text, then stream about 20 ms per word. `CONSORTIUM_MOCK_DELAY=0` removes delays for tests.
 
@@ -172,11 +182,11 @@ The target is a minimal, high-quality desktop tool in the vein of ChatGPT, Curso
 
 - **App bar** (64 px): menu icon, the Consortium mark and name, the table title with a second line such as "Group · 4 agents · 1 arbiter · Round 2", an Export button, and a Participants icon button that opens or closes the right panel.
 - **Left navigation** (256 px): a New table button and the list of recent tables with a short relative time. The current table is highlighted.
-- **Thread**: rounds in order, each with a round heading. Under it, the host message, then each agent's reply, then each arbiter's reply. A reply shows an avatar with the agent letter, the model name, "Agent A", the time taken, tool activity as small chips, and the text as markdown. A finished round's heading can collapse the round. Under an agent or arbiter reply, a "Reply privately" action opens the private conversation. If a private conversation exists, a chip under that reply says "Private conversation · 4 messages" and opens it.
+- **Thread**: rounds in order, each with a round heading. Under it, the host message, then each agent's reply, then each arbiter's reply. A reply shows an avatar with the agent letter, the model name, "Agent A", the time taken, tool activity as small chips, and the text as markdown. A finished round's heading can collapse the round. Under an agent or arbiter reply, an action named for the reply, such as "Message Skeptic", opens the side conversation. If a side conversation exists, a chip under that reply says "Side conversation · 4 messages" and opens it. When the host keeps it private, the chip says "Private side conversation · 4 messages" with a lock icon.
 - **Composer** (bottom of the thread): a text field, an attach button, and the primary button. For a new table the field says "Write the first message" and the button says Send. After that the field says "Add a note for round 3 (optional)" and the button says Next round. Ctrl or ⌘ with Enter also sends. While a round runs, the button becomes Stop. A helper line says who will reply.
 - **Participants panel** (380 px, right): the Interaction setting as a three-option segmented control, Independent, Parallel and Round robin; the system prompt; the agents in speaking order, which the host can reorder, each with an avatar, a model select, a browsing switch and a remove button; Add agent; the arbiters, each with a name field, a model select, a browsing switch, an instructions field and a remove button; Add arbiter. New arbiters are named "Arbiter 1", "Arbiter 2" and get the default arbiter model. The panel is disabled while the table is busy.
-- **Private conversation** (replaces the panel): the agent's avatar and model name, "Agent B · Private conversation", a close button, a note saying only this agent sees the conversation, the agent's latest round reply quoted at the top, the messages, a message field with a send button, and a Back to the table button.
-- **Narrow windows**: the conversation keeps at least 480 px. When the window is too narrow for that beside both side panels, the left navigation becomes a pop-over that opens over the thread from the left; when it is too narrow beside the right panel alone, the right panel becomes a pop-over from the right too. With the default widths these steps come at 1116 px and 860 px. A dimmed layer sits behind an open pop-over, and only one is open at a time. The header then always starts with the sidebar button. A press on the dimmed layer, Escape, the panel's close button, or choosing a table closes the open pop-over, and closing a private conversation returns to the thread. Under 640 px the Export button shows only its icon and the thread's side spacing tightens; on a phone a reply's toolbar shows the time taken without the token counts.
+- **Side conversation** (replaces the panel): the agent's avatar and model name, "Agent B · Claude Sonnet 5.5 · Side conversation", a close button, a status row with a switch labelled Private, the agent's latest round reply quoted at the top, the messages, a message field with a send button, and a Back to the conversation button. With the switch off, the row says "The other participants read this from the next round on." With it on, it says "Only Agent B reads this." The host can use the switch at any time.
+- **Narrow windows**: the conversation keeps at least 480 px. When the window is too narrow for that beside both side panels, the left navigation becomes a pop-over that opens over the thread from the left; when it is too narrow beside the right panel alone, the right panel becomes a pop-over from the right too. With the default widths these steps come at 1116 px and 860 px. A dimmed layer sits behind an open pop-over, and only one is open at a time. The header then always starts with the sidebar button. A press on the dimmed layer, Escape, the panel's close button, or choosing a table closes the open pop-over, and closing a side conversation returns to the thread. Under 640 px the Export button shows only its icon and the thread's side spacing tightens; on a phone a reply's toolbar shows the time taken without the token counts.
 - **Resizing**: while a side panel sits beside the conversation, its inner edge can be dragged: the left navigation between 200 and 420 px, the right panel between 320 and 600 px, and never so far that the conversation drops under 480 px. The edge is also a keyboard separator (arrow keys move it by 16 px, Home and End go to the limits) and a double-click restores the default width. The widths are kept in the browser.
 
 ### Behavior
@@ -185,13 +195,13 @@ The target is a minimal, high-quality desktop tool in the vein of ChatGPT, Curso
 - A new table opens with one agent per default model (Claude Code and Codex when they are installed, otherwise one model per maker from the gateway), the Summarizer arbiter, Group interaction, and the first-message composer. Its title is "Untitled conversation" until the first message is sent, when it becomes the first few words of that message. The title can be edited by clicking it.
 - Replies stream as they arrive. The thread stays scrolled to the newest content unless the user has scrolled up, in which case a "Scroll to newest" button appears.
 - Tables save to localStorage as they change. Reopening a table that was running shows its last state with the round marked stopped.
-- Export downloads the table as markdown: the title, the Interaction setting ("- Interaction: Independent", "Parallel" or "Round robin"), with a note such as "*Interaction changed to Round robin for this round.*" on a round where it changed, the list of participants with ", off" after an agent that is off, the host's instructions, each round with the host message and every reply, and each private conversation under the round it followed, the agents' first in speaking order, then the arbiters' in arbiter order. A conversation with an arbiter is headed "### Private conversation with Tracker, after round 1", and its replies start with "**Tracker · Arbiter · Claude Haiku 5.5:**". Votes and agents that sat out a round appear as they do in the transcript.
+- Export downloads the table as markdown: the title, the Interaction setting ("- Interaction: Independent", "Parallel" or "Round robin"), with a note such as "*Interaction changed to Round robin for this round.*" on a round where it changed, the list of participants with ", off" after an agent that is off, the host's instructions, each round with the host message and every reply, and each side conversation under the round it followed, the agents' first in speaking order, then the arbiters' in arbiter order. A side conversation is headed "### Side conversation with Agent B, after round 1" or "### Side conversation with Tracker, after round 1", with " (private)" at the end when the host kept it private. In a side conversation with an arbiter, its replies start with "**Tracker · Arbiter · Claude Haiku 5.5:**". Votes and agents that sat out a round appear as they do in the transcript.
 - Images can be attached by picking a file, pasting, or dropping onto the composer, and are resized to at most 1600 px.
 - Keyboard focus is visible on every control. Buttons say what they do. Error messages say what went wrong and what to do.
 
 ### Copy
 
-All interface text follows the writing guideline in `CLAUDE.md`. Labels are plain nouns: Interaction, Agents, Arbiters, Participants, Export, New table, Next round, Reply privately, Back to the table.
+All interface text follows the writing guideline in `CLAUDE.md`. Labels are plain nouns: Interaction, Agents, Arbiters, Participants, Export, New table, Next round, Message Skeptic, Back to the table.
 
 ## 8. Tests and acceptance
 
@@ -199,15 +209,15 @@ Unit tests with Vitest and a fake `SpeakFn`:
 
 - A round runs every agent at once and then the arbiters one by one, in order. In round robin, the agents run one at a time in seat order, each request is built at its turn and reads the earlier replies, a failed agent does not block the next, and Stop marks the waiting agents stopped.
 - An agent's request in a Group table includes other agents' earlier replies and excludes replies from the current round. In an Independent table it excludes other agents and arbiters entirely.
-- An arbiter's request includes this round's agent replies and earlier arbiters' replies, and only its own private thread.
-- A private thread appears only in that agent's or arbiter's request, after the right round.
+- An arbiter's request includes this round's agent replies and earlier arbiters' replies, its own side conversation, and the other participants' shared side conversations from earlier rounds.
+- A side conversation appears in its own participant's request after the right round. A shared one also appears from the next round on in the other agents' requests in Group rounds and in the arbiters' requests. A private one, or one held before the setting existed, appears in no other request.
 - Stop keeps partial text, marks the round stopped, and the next round can start.
 - A failed agent does not stop the round.
 - Edits are refused while busy and apply from the next round.
 - Export produces the expected markdown.
 - The speak and models routes work in mock mode.
 
-Acceptance for the whole app: `npm run build`, `npm run lint` and `npm test` pass. In mock mode, with no console errors: a new table runs two rounds with a note, an arbiter added between rounds answers in the next round, a private conversation with two exchanges works and shows in the thread, switching to Independent applies to the next round, Stop works mid-round, Export downloads, and a reload keeps the table.
+Acceptance for the whole app: `npm run build`, `npm run lint` and `npm test` pass. In mock mode, with no console errors: a new table runs two rounds with a note, an arbiter added between rounds answers in the next round, a side conversation with two exchanges works and shows in the thread, the Private switch changes the chip under the reply, switching to Independent applies to the next round, Stop works mid-round, Export downloads, and a reload keeps the table.
 
 ## 9. Engine exports used by the interface
 
@@ -218,6 +228,7 @@ export function createTableStore(table: Table, speak: SpeakFn): TableStore;
 // lib/engine/table.ts
 export function newTable(defaults: ModelsResponse, models: ModelInfo[]): Table; // one agent per default model, the Summarizer arbiter, group
 export function titleFrom(text: string): string; // the first few words of the first message
+export function threadPrivacy(table: Table, participantId: string): ThreadPrivacy; // "private" for a thread held before the setting existed
 
 // lib/client/speak.ts
 export const speak: SpeakFn;

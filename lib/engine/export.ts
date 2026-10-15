@@ -1,10 +1,12 @@
 // Markdown export of a table: the title, a short list of who took part, each
-// round with the host message and every reply, and each private conversation,
-// with an agent or an arbiter, under the round it followed.
+// round with the host message and every reply, and each side conversation,
+// with an agent or an arbiter, under the round it followed. A side conversation
+// the host kept private says so in its heading.
 
 import type { Arbiter, Attachment, PrivateMessage, Reply, Round, Seat, Table, ToolActivity } from "@/lib/types";
 import { MAKER_LABELS, SEAT_LETTERS } from "@/lib/types";
 import { agentName, sitOut, votesLine } from "./context";
+import { threadPrivacy } from "./table";
 
 export function tableToMarkdown(table: Table): string {
   const out: string[] = [];
@@ -82,12 +84,14 @@ function replyNotes(reply: Reply | PrivateMessage): string | null {
   return notes.length > 0 ? notes.join("\n") : null;
 }
 
-// A private conversation with an agent, headed "with Agent B", or with an
-// arbiter, headed "with Tracker".
+// A side conversation with an agent, headed "with Agent B", or with an
+// arbiter, headed "with Tracker", and " (private)" when the host kept it
+// private.
 function privateBlock(table: Table, participantId: string, messages: PrivateMessage[], afterRound: number): string[] {
   const when = afterRound > 0 ? `after round ${afterRound}` : "before round 1";
   const { who, speaker } = privateNames(table, participantId);
-  const out = [`### Private conversation with ${who}, ${when}`];
+  const kept = threadPrivacy(table, participantId) === "private" ? " (private)" : "";
+  const out = [`### Side conversation with ${who}, ${when}${kept}`];
   for (const message of messages) {
     if (message.role === "host") {
       const lines = [`**Host:** ${message.text.trim() || "*No text.*"}`];
@@ -104,7 +108,7 @@ function privateBlock(table: Table, participantId: string, messages: PrivateMess
   return out;
 }
 
-// Private messages grouped by the round they followed, then by participant:
+// Side conversation messages grouped by the round they followed, then by participant:
 // the agents in speaking order, then the arbiters in arbiter order.
 function privateConversations(table: Table): Map<number, Array<[string, PrivateMessage[]]>> {
   const groups = new Map<number, Array<[string, PrivateMessage[]]>>();
@@ -150,7 +154,7 @@ function arbiterTitle(arbiter: Arbiter): string {
   return `${arbiter.name} · Arbiter · ${arbiter.modelName}`;
 }
 
-// Who a private conversation is with, for its heading, and the name on the
+// Who a side conversation is with, for its heading, and the name on the
 // participant's messages. A participant no longer at the table is looked up
 // in the rounds.
 function privateNames(table: Table, participantId: string): { who: string; speaker: string } {
