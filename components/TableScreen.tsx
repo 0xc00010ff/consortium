@@ -52,6 +52,8 @@ export function TableScreen({
   const privateBusy = privateBusyParticipant(table);
   // The agent or arbiter whose side conversation is open.
   const [openId, setOpenId] = useState<string | null>(null);
+  // The round whose section the side conversation opened at, when it was opened from a chip under a reply.
+  const [openRound, setOpenRound] = useState<number | undefined>(undefined);
   const [runError, setRunError] = useState<string | null>(null);
   // A message handed back to the composer by a rewind. The number changes on
   // every rewind, so the composer starts again with that message.
@@ -133,8 +135,9 @@ export function TableScreen({
 
   const participantsShown = !open && panelOpen;
 
-  function openPrivate(id: string) {
+  function openPrivate(id: string, round?: number) {
     setOpenId(id);
+    setOpenRound(round);
     if (panelDrawer) setDrawer("panel");
   }
 
@@ -219,6 +222,7 @@ export function TableScreen({
           onStop={() => store.stop()}
           onClose={closePrivate}
           resize={panelResize}
+          focusRound={openRound}
         />
       ) : panelOpen ? (
         <ParticipantsPanel

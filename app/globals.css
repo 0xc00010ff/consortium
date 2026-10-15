@@ -2418,6 +2418,31 @@ button.round-btn:focus-visible {
   background: var(--border);
 }
 
+/* The heading of an earlier section in a side conversation, which opens and
+   closes it. */
+.pm-fold {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pm-fold .ic {
+  flex: none;
+}
+
+.pm-fold:hover {
+  color: var(--text);
+}
+
+.pm-fold:focus-visible {
+  outline-offset: 0;
+  border-radius: 4px;
+}
+
 .pm {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);

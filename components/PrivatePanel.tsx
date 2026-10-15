@@ -1,9 +1,9 @@
 "use client";
 
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { PrivateMessage, Reply, Table, ThreadPrivacy } from "@/lib/types";
 import { confirm } from "@/lib/ui/confirm";
-import { excerpt, formatDuration, replyStats } from "@/lib/ui/format";
+import { excerpt, formatDuration, plural, replyStats } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
 import { useStickToBottom } from "@/lib/ui/useStickToBottom";
 import { latestReply, type Participant } from "@/lib/ui/view";
@@ -36,6 +36,7 @@ export function PrivatePanel({
   onStop,
   onClose,
   resize,
+  focusRound,
 }: {
   table: Table;
   participant: Participant; // the agent or arbiter, as it is at the table now
@@ -48,12 +49,24 @@ export function PrivatePanel({
   onStop: () => void;
   onClose: () => void;
   resize?: Resize; // present while the panel sits beside the conversation
+  focusRound?: number; // the round whose section to open, when the panel was opened from a chip under a reply
 }) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { scrollRef, contentRef } = useStickToBottom();
+  const { scrollRef, contentRef, hold } = useStickToBottom();
   const p = participant;
   const messages = table.privateThreads[p.id] ?? [];
+  const sections = sectionsOf(messages);
+  // The section after the table's last round is always open. The others are
+  // closed unless the host opened them or the panel was opened for them.
+  const current = table.rounds.length;
+  const [opened, setOpened] = useState<Set<number>>(() => new Set(focusRound === undefined ? [current] : [current, focusRound]));
+  // A chip under another reply can ask for another section while the panel is open.
+  const [lastFocus, setLastFocus] = useState(focusRound);
+  if (focusRound !== lastFocus) {
+    setLastFocus(focusRound);
+    if (focusRound !== undefined && !opened.has(focusRound)) setOpened(new Set(opened).add(focusRound));
+  }
   const latest = latestReply(table, p.id);
   const canSend = !busy && text.trim() !== "";
   const sub =
@@ -64,6 +77,27 @@ export function PrivatePanel({
         : `${p.label} · Side conversation`;
   const only = p.hostName ? `${p.label} (${p.hostName})` : p.label;
   const kept = privacy === "private";
+
+  // When the panel opens for an earlier section, that section's heading goes to
+  // the top of the list instead of the list sticking to the bottom. Only earlier
+  // sections have a button heading, so the current one keeps the list at the bottom.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const heading = el?.querySelector<HTMLElement>(`button[data-round="${focusRound}"]`);
+    if (!el || !heading) return;
+    hold();
+    el.scrollTop += heading.getBoundingClientRect().top - el.getBoundingClientRect().top - 14;
+  }, [focusRound, hold, scrollRef]);
+
+  function toggleSection(round: number) {
+    hold();
+    setOpened((o) => {
+      const next = new Set(o);
+      if (next.has(round)) next.delete(round);
+      else next.add(round);
+      return next;
+    });
+  }
 
   function send() {
     if (!canSend) return;
@@ -123,14 +157,32 @@ export function PrivatePanel({
               {quoteText(latest.reply)}
             </blockquote>
           ) : null}
-          {messages.map((m, i) => (
-            <Fragment key={m.id}>
-              {i === 0 || messages[i - 1].afterRound !== m.afterRound ? (
-                <p className="pm-after">After round {m.afterRound}</p>
-              ) : null}
-              <PrivateMessageView message={m} participant={p} busy={busy} onRewind={() => rewind(m.id)} />
-            </Fragment>
-          ))}
+          {sections.map(({ round, messages: list }) => {
+            const open = round === current || opened.has(round);
+            return (
+              <Fragment key={round}>
+                {round === current ? (
+                  <p className="pm-after">After round {round}</p>
+                ) : (
+                  <button
+                    type="button"
+                    className="pm-after pm-fold"
+                    aria-expanded={open}
+                    data-round={round}
+                    onClick={() => toggleSection(round)}
+                  >
+                    <Icon name={open ? "chevronDown" : "chevronRight"} size={12} />
+                    After round {round} · {plural(list.filter((m) => m.role !== "host" || m.text).length, "message")}
+                  </button>
+                )}
+                {open
+                  ? list.map((m) => (
+                      <PrivateMessageView key={m.id} message={m} participant={p} busy={busy} onRewind={() => rewind(m.id)} />
+                    ))
+                  : null}
+              </Fragment>
+            );
+          })}
         </div>
       </div>
 
@@ -267,6 +319,17 @@ function PrivateMessageView({
       </div>
     </div>
   );
+}
+
+// The thread split by the round each message followed, in order.
+function sectionsOf(messages: PrivateMessage[]): { round: number; messages: PrivateMessage[] }[] {
+  const byRound = new Map<number, PrivateMessage[]>();
+  for (const m of messages) {
+    const list = byRound.get(m.afterRound);
+    if (list) list.push(m);
+    else byRound.set(m.afterRound, [m]);
+  }
+  return [...byRound].map(([round, list]) => ({ round, messages: list }));
 }
 
 // The quoted reply at the top of the panel.

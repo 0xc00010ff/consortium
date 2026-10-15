@@ -38,7 +38,7 @@ export function Thread({
   table: Table;
   openPrivateId: string | null; // the agent or arbiter whose side conversation is open
   highlightReplyId: string | null;
-  onOpenPrivate: (participantId: string) => void;
+  onOpenPrivate: (participantId: string, round?: number) => void; // round: the section to open, from a chip under a reply
   onVote: (replyId: string, delta: number) => void;
   onRewind: (roundNumber: number) => void;
   stick: StickToBottom;
@@ -141,7 +141,7 @@ function RoundView({
   onToggleFolded: (id: string, next: boolean) => void;
   onHold: () => void;
   onToggle?: () => void;
-  onOpenPrivate: (participantId: string) => void;
+  onOpenPrivate: (participantId: string, round?: number) => void; // round: the section to open, from a chip under a reply
   onVote: (replyId: string, delta: number) => void;
   onRewind?: () => void;
 }) {
@@ -155,7 +155,7 @@ function RoundView({
     const kept = threadPrivacy(table, id) === "private";
     return (
       <div className="acts">
-        <button type="button" className="chip" onClick={() => onOpenPrivate(id)}>
+        <button type="button" className="chip" onClick={() => onOpenPrivate(id, round.number)}>
           <Icon name={kept ? "lock" : "message"} size={14} />
           {kept ? "Private side conversation" : "Side conversation"} · {plural(count, "message")}
         </button>
