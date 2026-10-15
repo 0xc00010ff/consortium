@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { scrollBehavior, type StickToBottom } from "./useStickToBottom";
 
-// How close the mouse must come to the top or bottom edge of the thread for
-// that edge's button to show.
+// How close the mouse must come to the top edge of the thread for the round
+// button to show.
 const BAND = 112;
 // How long the buttons stay after a touch scroll, with no hover to keep them.
 const TOUCH_MS = 1500;
@@ -13,14 +13,13 @@ type View = { round: number | null; away: boolean };
 
 // Decides when the thread's two jump buttons show. The top one names the round
 // whose section spans the top edge of the view, once the view has scrolled
-// past that round's start. The bottom one shows when the view is away from
-// the bottom, and always while new content waits below.
-// A button shows while the mouse is near its edge, or for a short time after a
-// touch scroll.
+// past that round's start, and shows while the mouse is near the top edge or
+// for a short time after a touch scroll. The bottom one shows whenever the
+// view is away from the bottom.
 export function useJumpButtons({ scrollRef, contentRef, hasNew, jump, release }: StickToBottom) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ round: null, away: false });
-  const [near, setNear] = useState({ top: false, bottom: false });
+  const [nearTop, setNearTop] = useState(false);
   const [touched, setTouched] = useState(false);
 
   // Where the view is: the round at its top edge and whether it is away from
@@ -59,31 +58,28 @@ export function useJumpButtons({ scrollRef, contentRef, hasNew, jump, release }:
     };
   }, [scrollRef, contentRef]);
 
-  // Whether the mouse is near either edge, and the short reveal after a touch
+  // Whether the mouse is near the top edge, and the short reveal after a touch
   // scroll. Only a scroll that follows a touch counts, so a streaming reply
   // that keeps the view at the bottom does not keep the buttons up.
   useEffect(() => {
     const wrap = wrapRef.current;
     const el = scrollRef.current;
     if (!wrap || !el) return;
-    let nearTop = false;
-    let nearBottom = false;
+    let near = false;
     let shown = false;
     let lastTouch = -Infinity;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const setFlags = (top: boolean, bottom: boolean) => {
-      if (top === nearTop && bottom === nearBottom) return;
-      nearTop = top;
-      nearBottom = bottom;
-      setNear({ top, bottom });
+    const setNear = (next: boolean) => {
+      if (next === near) return;
+      near = next;
+      setNearTop(next);
     };
     const onMove = (e: PointerEvent) => {
       if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
-      const r = wrap.getBoundingClientRect();
-      setFlags(e.clientY - r.top <= BAND, r.bottom - e.clientY <= BAND);
+      setNear(e.clientY - wrap.getBoundingClientRect().top <= BAND);
     };
-    const onLeave = () => setFlags(false, false);
+    const onLeave = () => setNear(false);
     const onTouch = () => {
       lastTouch = performance.now();
     };
@@ -133,8 +129,8 @@ export function useJumpButtons({ scrollRef, contentRef, hasNew, jump, release }:
 
   return {
     wrapRef,
-    topRound: view.round !== null && (near.top || touched) ? view.round : null,
-    showLatest: hasNew || (view.away && (near.bottom || touched)),
+    topRound: view.round !== null && (nearTop || touched) ? view.round : null,
+    showLatest: hasNew || view.away,
     toRound,
     toLatest: jump,
   };
