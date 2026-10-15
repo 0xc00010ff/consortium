@@ -1747,15 +1747,38 @@ button.round-btn:focus-visible {
   border-radius: 6px;
 }
 
-.to-newest {
+/* The jump buttons over the thread: the round at the top edge, and the
+   latest message at the bottom. */
+.jump {
   position: absolute;
   left: 50%;
-  bottom: 12px;
+  z-index: 1;
   transform: translateX(-50%);
   height: 30px;
   border-radius: 999px;
   font-size: 13px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  animation: jump-in 0.12s ease-out;
+}
+
+.jump.top {
+  top: 12px;
+}
+
+.jump.bottom {
+  bottom: 12px;
+}
+
+@keyframes jump-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jump {
+    animation: none;
+  }
 }
 
 /* ---------- markdown ---------- */

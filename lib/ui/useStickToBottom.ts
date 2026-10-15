@@ -2,11 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// The scroll behavior for a jump: smooth, or instant when the user asks for
+// reduced motion.
+export function scrollBehavior(): ScrollBehavior {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
 // Keeps a scroll area at the newest content while the user is at the bottom.
 // Scrolling up releases it. Returning to the bottom, or calling jump(), holds it again.
 // `hasNew` is true when content grew while the user was scrolled up.
 // hold() marks the next size change as the user's own (expanding or collapsing
 // a reply), so it neither scrolls the view nor counts as new content.
+// release() lets go before a scroll up that the page starts, so new content
+// does not pull the view back down while the scroll begins.
 export function useStickToBottom() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -14,6 +22,9 @@ export function useStickToBottom() {
   const lastTop = useRef(0);
   const lastHeight = useRef(0);
   const holdUntil = useRef(0);
+  // Set by release() until the scroll it precedes starts moving up, so the
+  // first steps of that scroll, still near the bottom, do not hold it again.
+  const released = useRef(false);
   const [hasNew, setHasNew] = useState(false);
 
   useEffect(() => {
@@ -29,7 +40,9 @@ export function useStickToBottom() {
     };
 
     const onScroll = () => {
-      if (distance() <= 8) {
+      if (released.current) {
+        if (el.scrollTop < lastTop.current - 1) released.current = false;
+      } else if (distance() <= 8) {
         pinned.current = true;
         setHasNew(false);
       } else if (el.scrollTop < lastTop.current - 1) {
@@ -65,15 +78,21 @@ export function useStickToBottom() {
     const el = scrollRef.current;
     if (!el) return;
     pinned.current = true;
+    released.current = false;
     setHasNew(false);
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    el.scrollTo({ top: el.scrollHeight, behavior: scrollBehavior() });
+  }, []);
+
+  const release = useCallback(() => {
+    pinned.current = false;
+    released.current = true;
   }, []);
 
   const hold = useCallback(() => {
     holdUntil.current = performance.now() + 300;
   }, []);
 
-  return { scrollRef, contentRef, hasNew, jump, hold };
+  return { scrollRef, contentRef, hasNew, jump, hold, release };
 }
 
 export type StickToBottom = ReturnType<typeof useStickToBottom>;

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { Reply, Round, Table } from "@/lib/types";
 import { formatDuration, plural, replyStats } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
+import { useJumpButtons } from "@/lib/ui/useJumpButtons";
 import type { StickToBottom } from "@/lib/ui/useStickToBottom";
 import {
   arbiterIn,
@@ -43,7 +44,8 @@ export function Thread({
   onRewind: (roundNumber: number) => void;
   stick: StickToBottom;
 }) {
-  const { scrollRef, contentRef, hasNew, jump, hold } = stick;
+  const { scrollRef, contentRef, hold } = stick;
+  const { wrapRef, topRound, showLatest, toRound, toLatest } = useJumpButtons(stick);
   // Rounds the host opened or closed. Others follow the default: earlier
   // finished rounds are collapsed, the latest round is open. The key includes
   // the time of the host message, so a round sent again after a rewind starts
@@ -62,7 +64,7 @@ export function Thread({
   const busy = isBusy(table);
 
   return (
-    <div className="thread-wrap">
+    <div className="thread-wrap" ref={wrapRef}>
       <div className="thread-scroll" ref={scrollRef}>
         <div className="thread" ref={contentRef}>
           {table.rounds.length === 0 ? (
@@ -100,10 +102,21 @@ export function Thread({
           )}
         </div>
       </div>
-      {hasNew ? (
-        <button type="button" className="btn to-newest" onClick={jump}>
+      {topRound !== null ? (
+        <button
+          type="button"
+          className="btn jump top"
+          aria-label={`Jump to the start of round ${topRound}`}
+          onClick={() => toRound(topRound)}
+        >
+          <Icon name="arrowUp" />
+          Round {topRound}
+        </button>
+      ) : null}
+      {showLatest ? (
+        <button type="button" className="btn jump bottom" aria-label="Jump to the latest message" onClick={toLatest}>
+          Latest
           <Icon name="arrowDown" />
-          Scroll to newest
         </button>
       ) : null}
     </div>
@@ -183,7 +196,7 @@ function RoundView({
   );
 
   return (
-    <section className="round" aria-label={`Round ${round.number}`}>
+    <section className="round" data-round={round.number} aria-label={`Round ${round.number}`}>
       <h2 className="round-h" aria-label={label}>
         {onToggle ? (
           <button type="button" className="round-btn" aria-label={label} aria-expanded={!collapsed} onClick={onToggle}>
