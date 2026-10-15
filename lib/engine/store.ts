@@ -145,6 +145,14 @@ class Store implements TableStore {
     return round.host;
   };
 
+  rewindPrivate = (participantId: string, messageId: string): PrivateMessage | null => {
+    if (this.job) return null;
+    const message = this.table.privateThreads[participantId]?.find((m) => m.id === messageId);
+    if (!message || message.role !== "host") return null;
+    this.commit((t) => rewindThread(t, participantId, messageId));
+    return message;
+  };
+
   // ---------- Rounds ----------
 
   private async runRound(job: Job, message: Message): Promise<void> {
@@ -473,6 +481,17 @@ export function rewindTable(table: Table, roundNumber: number): Table {
     if (kept.length > 0) privateThreads[participantId] = kept;
   }
   return { ...table, rounds: table.rounds.filter((r) => r.number < roundNumber), privateThreads };
+}
+
+// Deletes one message in a side conversation and every message after it in
+// that thread. Rounds and other threads stay as they are, and so does who
+// reads the thread. A thread left with no messages stays as an empty list.
+// Later rounds may have read the deleted messages; they are kept as they are.
+export function rewindThread(table: Table, participantId: string, messageId: string): Table {
+  const thread = table.privateThreads[participantId];
+  const index = thread?.findIndex((m) => m.id === messageId) ?? -1;
+  if (!thread || index < 0) return table;
+  return { ...table, privateThreads: { ...table.privateThreads, [participantId]: thread.slice(0, index) } };
 }
 
 function isDefaultTitle(title: string): boolean {

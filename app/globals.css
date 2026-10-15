@@ -2438,6 +2438,26 @@ button.round-btn:focus-visible {
   color: var(--text-2);
 }
 
+.pm-act.ibtn {
+  margin: -2px 0 -2px auto;
+  width: 24px;
+  height: 24px;
+  opacity: 0;
+  transition: opacity 0.12s, background-color 0.12s, color 0.12s;
+}
+
+.pm:hover .pm-act,
+.pm:focus-within .pm-act,
+.pm-act:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .pm-act.ibtn {
+    opacity: 1;
+  }
+}
+
 .pm .msg-text {
   font-size: 14px;
   line-height: 1.55;

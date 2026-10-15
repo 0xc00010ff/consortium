@@ -230,6 +230,12 @@ export interface TableStore {
   // Returns the deleted round's host message for the composer, or null if
   // there is no such round or the table is busy.
   rewind(roundNumber: number): HostMessage | null;
+  // Deletes one of the host's messages in a side conversation and every
+  // message after it in that thread, so the host can send it again. Returns
+  // the deleted message for the message field, or null if the table is busy,
+  // there is no such message, or it is not the host's. The thread's privacy
+  // setting stays.
+  rewindPrivate(participantId: string, messageId: string): PrivateMessage | null;
 }
 
 // createTableStore(table: Table, speak: SpeakFn): TableStore is exported from lib/engine/store.ts.

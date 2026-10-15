@@ -668,6 +668,95 @@ describe("rewind", () => {
   });
 });
 
+describe("rewindPrivate", () => {
+  it("deletes the host's message and every message after it, keeps the earlier ones, and returns it", async () => {
+    const store = createTableStore(makeTable(), echo(1).speak);
+    await store.sendRound(message("First"));
+    await store.sendPrivate("B", message("One"));
+    await store.sendPrivate("B", { text: "Two", attachments: [{ id: "i1", name: "chart.png", mediaType: "image/png", dataUrl: "data:," }] });
+    await store.sendPrivate("B", message("Three"));
+    await store.sendPrivate("C", message("Elsewhere"));
+    const before = store.getTable();
+    const second = before.privateThreads.B?.[2];
+    expect(second?.text).toBe("Two");
+
+    const host = store.rewindPrivate("B", second!.id);
+    expect(host).toEqual(second);
+    expect(host?.attachments?.map((a) => a.name)).toEqual(["chart.png"]);
+    const table = store.getTable();
+    expect(table.privateThreads.B?.map((m) => m.text)).toEqual(["One", "Agent B says hello in round 1."]);
+    expect(table.privateThreads.C).toBe(before.privateThreads.C);
+    expect(table.rounds).toBe(before.rounds);
+    expect(table.threadPrivacy).toEqual({ B: "shared", C: "shared" });
+
+    await store.sendPrivate("B", message("Two, again"));
+    expect(store.getTable().privateThreads.B?.map((m) => m.text)).toEqual([
+      "One",
+      "Agent B says hello in round 1.",
+      "Two, again",
+      "Agent B says hello in round 1.",
+    ]);
+  });
+
+  it("keeps the thread's privacy setting when the thread is left empty", async () => {
+    const store = createTableStore(makeTable(), echo(1).speak);
+    await store.sendPrivate("A", message("Just between us"));
+    store.setThreadPrivacy("A", "private");
+    const first = store.getTable().privateThreads.A?.[0];
+
+    expect(store.rewindPrivate("A", first!.id)?.text).toBe("Just between us");
+    expect(store.getTable().privateThreads.A).toEqual([]);
+    expect(store.getTable().threadPrivacy).toEqual({ A: "private" });
+
+    await store.sendPrivate("A", message("Again"));
+    expect(store.getTable().threadPrivacy).toEqual({ A: "private" });
+  });
+
+  it("works for an arbiter's thread", async () => {
+    const store = createTableStore(makeTable({ seats: makeSeats(2), arbiters: [makeArbiter(1)] }), echo(1).speak);
+    await store.sendRound(message("First"));
+    await store.sendPrivate("arbiter-1", message("One"));
+    await store.sendPrivate("arbiter-1", message("Two"));
+    const second = store.getTable().privateThreads["arbiter-1"]?.[2];
+
+    expect(store.rewindPrivate("arbiter-1", second!.id)?.text).toBe("Two");
+    expect(store.getTable().privateThreads["arbiter-1"]?.map((m) => m.text)).toEqual(["One", "Tracker says hello in round 1."]);
+  });
+
+  it("refuses a reply, an unknown message, and an unknown thread", async () => {
+    const store = createTableStore(makeTable(), echo(1).speak);
+    await store.sendPrivate("B", message("One"));
+    const before = store.getTable();
+    const reply = before.privateThreads.B?.[1];
+    expect(reply?.role).toBe("seat");
+
+    expect(store.rewindPrivate("B", reply!.id)).toBeNull();
+    expect(store.rewindPrivate("B", "no-such-message")).toBeNull();
+    expect(store.rewindPrivate("C", before.privateThreads.B![0].id)).toBeNull();
+    expect(store.getTable()).toBe(before);
+  });
+
+  it("is refused while the table is busy", async () => {
+    const gate = deferred();
+    const { speak } = scriptedSpeak(async (request) => {
+      if (request.mockHint?.round === 1) await gate.promise;
+      return "Fine.";
+    });
+    const store = createTableStore(makeTable(), speak);
+    await store.sendPrivate("B", message("One"));
+    const first = store.getTable().privateThreads.B![0];
+
+    const pending = store.sendRound(message("First"));
+    await waitFor(store, (t) => lastRound(t).replies.every((r) => r.status === "streaming"));
+    const before = store.getTable();
+    expect(store.rewindPrivate("B", first.id)).toBeNull();
+    expect(store.getTable()).toBe(before);
+    gate.resolve();
+    await pending;
+    expect(store.getTable().privateThreads.B).toHaveLength(2);
+  });
+});
+
 describe("round robin", () => {
   const who = (request: { mockHint?: { seatId?: string; arbiterName?: string } }) =>
     request.mockHint?.seatId ?? request.mockHint?.arbiterName ?? "?";

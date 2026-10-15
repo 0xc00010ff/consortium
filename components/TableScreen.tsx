@@ -215,6 +215,7 @@ export function TableScreen({
           privacy={threadPrivacy(table, open.id)}
           onPrivacy={(p) => store.setThreadPrivacy(open.id, p)}
           onSend={sendPrivate}
+          onRewind={(messageId) => store.rewindPrivate(open.id, messageId)}
           onStop={() => store.stop()}
           onClose={closePrivate}
           resize={panelResize}

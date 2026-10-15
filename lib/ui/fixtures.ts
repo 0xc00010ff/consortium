@@ -657,8 +657,9 @@ const builders: Record<FixtureName, () => Table> = {
 
 // ---------- a store for previews ----------
 
-// Holds a fixture table. Edits, votes, privacy switches and rewinds apply, so the controls can
-// be tried. Sending and stopping do nothing, because there is no engine behind it.
+// Holds a fixture table. Edits, votes, privacy switches and rewinds of rounds and side
+// conversations apply, so the controls can be tried. Sending and stopping do nothing,
+// because there is no engine behind it.
 function previewStore(table: Table): TableStore {
   let current = table;
   const listeners = new Set<() => void>();
@@ -707,6 +708,17 @@ function previewStore(table: Table): TableStore {
         updatedAt: Date.now(),
       });
       return target.host;
+    },
+    rewindPrivate(participantId: string, messageId: string): PrivateMessage | null {
+      const thread = current.privateThreads[participantId] ?? [];
+      const index = thread.findIndex((m) => m.id === messageId);
+      const target = thread[index];
+      if (!target || target.role !== "host" || isBusy(current)) return null;
+      const privateThreads = { ...current.privateThreads };
+      if (index > 0) privateThreads[participantId] = thread.slice(0, index);
+      else delete privateThreads[participantId];
+      publish({ ...current, privateThreads, updatedAt: Date.now() });
+      return target;
     },
   };
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import type { PrivateMessage, Reply, Table, ThreadPrivacy } from "@/lib/types";
+import { confirm } from "@/lib/ui/confirm";
 import { excerpt, formatDuration } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
 import { useStickToBottom } from "@/lib/ui/useStickToBottom";
@@ -19,6 +20,7 @@ export function PrivatePanel({
   privacy,
   onPrivacy,
   onSend,
+  onRewind,
   onStop,
   onClose,
   resize,
@@ -30,11 +32,13 @@ export function PrivatePanel({
   privacy: ThreadPrivacy; // who reads this side conversation
   onPrivacy: (privacy: ThreadPrivacy) => void;
   onSend: (text: string) => boolean; // false when the store did not start the reply
+  onRewind: (messageId: string) => PrivateMessage | null; // the deleted message, or null when nothing was deleted
   onStop: () => void;
   onClose: () => void;
   resize?: Resize; // present while the panel sits beside the conversation
 }) {
   const [text, setText] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { scrollRef, contentRef } = useStickToBottom();
   const p = participant;
   const messages = table.privateThreads[p.id] ?? [];
@@ -52,6 +56,32 @@ export function PrivatePanel({
   function send() {
     if (!canSend) return;
     if (onSend(text.trim())) setText("");
+  }
+
+  // Deletes this message and the ones after it, after asking, and puts its
+  // text back into the message field.
+  async function rewind(messageId: string) {
+    const index = messages.findIndex((m) => m.id === messageId);
+    if (index < 0) return;
+    const after = messages.length - index - 1;
+    const deleted =
+      after === 0
+        ? "It will be deleted"
+        : after === 1
+          ? "It will be deleted along with the message after it"
+          : `It will be deleted along with the ${after} messages after it`;
+    const message = `Rewind to this message? ${deleted}, and its text goes back into the message field.`;
+    if (!(await confirm({ message, action: "Rewind" }))) return;
+    const host = onRewind(messageId);
+    if (!host) return;
+    setText(host.text);
+    // Focus after React has put the text in, with the caret at the end.
+    requestAnimationFrame(() => {
+      const field = textareaRef.current;
+      if (!field) return;
+      field.focus();
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
   }
 
   return (
@@ -86,7 +116,7 @@ export function PrivatePanel({
               {i === 0 || messages[i - 1].afterRound !== m.afterRound ? (
                 <p className="pm-after">After round {m.afterRound}</p>
               ) : null}
-              <PrivateMessageView message={m} participant={p} />
+              <PrivateMessageView message={m} participant={p} busy={busy} onRewind={() => rewind(m.id)} />
             </Fragment>
           ))}
         </div>
@@ -95,6 +125,7 @@ export function PrivatePanel({
       <div className="panel-foot">
         <div className="box small">
           <textarea
+            ref={textareaRef}
             rows={2}
             value={text}
             aria-label={`Message to ${p.label}`}
@@ -138,13 +169,35 @@ function ParticipantAvatar({ participant, small }: { participant: Participant; s
   return <SeatAvatar id={participant.id} color={participant.color ?? "blue"} small={small} />;
 }
 
-function PrivateMessageView({ message, participant }: { message: PrivateMessage; participant: Participant }) {
+function PrivateMessageView({
+  message,
+  participant,
+  busy,
+  onRewind,
+}: {
+  message: PrivateMessage;
+  participant: Participant;
+  busy: boolean;
+  onRewind: () => void;
+}) {
   if (message.role === "host") {
     return (
       <div className="pm">
         <HostAvatar small />
         <div className="pm-main">
-          <div className="pm-n">You</div>
+          <div className="pm-n">
+            You
+            <button
+              type="button"
+              className="ibtn sm pm-act"
+              aria-label="Rewind to this message"
+              title="Rewind to this message"
+              onClick={onRewind}
+              disabled={busy}
+            >
+              <Icon name="rewind" size={14} />
+            </button>
+          </div>
           <div className="msg-text host-text">{message.text}</div>
         </div>
       </div>
