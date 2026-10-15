@@ -3,14 +3,26 @@
 import { Fragment, useRef, useState } from "react";
 import type { PrivateMessage, Reply, Table, ThreadPrivacy } from "@/lib/types";
 import { confirm } from "@/lib/ui/confirm";
-import { excerpt, formatDuration } from "@/lib/ui/format";
+import { excerpt, formatDuration, replyStats } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
 import { useStickToBottom } from "@/lib/ui/useStickToBottom";
 import { latestReply, type Participant } from "@/lib/ui/view";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { ReplyError } from "./Thread";
-import { ArbiterAvatar, cx, HostAvatar, IconButton, type Resize, ResizeHandle, SeatAvatar, Switch, ToolChips } from "./ui";
+import {
+  ArbiterAvatar,
+  CopyButton,
+  type CopyState,
+  cx,
+  HostAvatar,
+  IconButton,
+  type Resize,
+  ResizeHandle,
+  SeatAvatar,
+  Switch,
+  ToolChips,
+} from "./ui";
 
 export function PrivatePanel({
   table,
@@ -180,16 +192,21 @@ function PrivateMessageView({
   busy: boolean;
   onRewind: () => void;
 }) {
+  const [copy, setCopy] = useState<CopyState>("idle");
+  const bar = cx("tbar pm-bar", copy !== "idle" && "keep");
+
   if (message.role === "host") {
     return (
       <div className="pm">
         <HostAvatar small />
         <div className="pm-main">
-          <div className="pm-n">
-            You
+          <div className="pm-n">You</div>
+          <div className="msg-text host-text">{message.text}</div>
+          <div className={bar}>
+            {message.text ? <CopyButton text={message.text} onState={setCopy} /> : null}
             <button
               type="button"
-              className="ibtn sm pm-act"
+              className="ibtn sm"
               aria-label="Rewind to this message"
               title="Rewind to this message"
               onClick={onRewind}
@@ -198,24 +215,29 @@ function PrivateMessageView({
               <Icon name="rewind" size={14} />
             </button>
           </div>
-          <div className="msg-text host-text">{message.text}</div>
         </div>
       </div>
     );
   }
-  const duration = message.status === "done" ? formatDuration(message.durationMs) : "";
+
+  const finished = message.status === "done" || message.status === "error";
+  // The duration and the token counts are separate, so a phone can show the
+  // duration alone, as under a reply in the thread.
+  const duration = finished ? formatDuration(message.durationMs) : "";
+  const usage = finished ? replyStats(undefined, message.usage) : "";
+  const usageTitle =
+    [
+      message.usage?.inputTokens !== undefined && `${message.usage.inputTokens.toLocaleString("en-US")} input tokens`,
+      message.usage?.outputTokens !== undefined && `${message.usage.outputTokens.toLocaleString("en-US")} output tokens`,
+    ]
+      .filter(Boolean)
+      .join(", ") || undefined;
   return (
-    <div className={cx("pm")} aria-busy={message.status === "streaming" || undefined}>
+    <div className="pm" aria-busy={message.status === "streaming" || undefined}>
       <ParticipantAvatar participant={participant} small />
       <div className="pm-main">
         <div className="pm-n">
           {participant.name}
-          {duration ? (
-            <>
-              {" · "}
-              <span className="mono">{duration}</span>
-            </>
-          ) : null}
           {message.status === "streaming" || message.status === "queued" ? (
             <span className="msg-state live">
               <span className="pulse" aria-hidden="true" />
@@ -225,11 +247,23 @@ function PrivateMessageView({
         </div>
         <ToolChips tools={message.tools} />
         {message.text ? <Markdown text={message.text} className="msg-text" /> : null}
-        {message.status === "error" ? <ReplyError
+        {message.status === "error" ? (
+          <ReplyError
             error={message.error}
             hasText={Boolean(message.text)}
             kind={participant.kind === "arbiter" ? "arbiter" : "seat"}
-          /> : null}
+          />
+        ) : null}
+        <div className={bar}>
+          {finished && message.text ? <CopyButton text={message.text} onState={setCopy} /> : null}
+          <span className="tbar-space" />
+          {duration || usage ? (
+            <span className="tbar-stats mono" title={usageTitle}>
+              {duration}
+              {usage ? <span className="tbar-usage">{duration ? ` · ${usage}` : usage}</span> : null}
+            </span>
+          ) : null}
+        </div>
       </div>
     </div>
   );

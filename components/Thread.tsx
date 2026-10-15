@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { Reply, Round, Table } from "@/lib/types";
-import { copyToClipboard } from "@/lib/ui/download";
 import { formatDuration, plural, replyStats } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
 import type { StickToBottom } from "@/lib/ui/useStickToBottom";
@@ -21,7 +20,7 @@ import {
 import { threadPrivacy } from "@/lib/ui/engine";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
-import { ArbiterAvatar, cx, HostAvatar, SeatAvatar, Thumbs, ToolChips } from "./ui";
+import { ArbiterAvatar, CopyButton, type CopyState, cx, HostAvatar, SeatAvatar, Thumbs, ToolChips } from "./ui";
 
 // A reply body is capped at about 12 lines of message text (15 px at a
 // line height of 1.6 is 1.5rem per line).
@@ -327,8 +326,7 @@ function ReplyView({
   const innerRef = useRef<HTMLDivElement>(null);
   const bodyId = useId();
   const [overflows, setOverflows] = useState(false);
-  const [copy, setCopy] = useState<"idle" | "done" | "failed">("idle");
-  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [copy, setCopy] = useState<CopyState>("idle");
 
   // Agent replies are capped until the host expands them. An arbiter sums
   // up the round, so its reply shows in full.
@@ -350,10 +348,6 @@ function ReplyView({
     return () => observer.disconnect();
   }, [folded]);
 
-  useEffect(() => () => {
-    if (copyTimer.current) clearTimeout(copyTimer.current);
-  }, []);
-
   // Making a reply shorter when its top is scrolled past brings its header
   // back into view.
   function revealHeader() {
@@ -374,13 +368,6 @@ function ReplyView({
     onHold();
     if (!folded) revealHeader();
     onToggleFolded(reply.id, !folded);
-  }
-
-  async function copyText() {
-    const ok = await copyToClipboard(reply.text);
-    setCopy(ok ? "done" : "failed");
-    if (copyTimer.current) clearTimeout(copyTimer.current);
-    copyTimer.current = setTimeout(() => setCopy("idle"), 1600);
   }
 
   const capped = !expanded;
@@ -455,17 +442,7 @@ function ReplyView({
                   <Icon name={expanded ? "chevronUp" : "chevronDown"} />
                 </button>
               ) : null}
-              {canCopy ? (
-                <button
-                  type="button"
-                  className="ibtn sm"
-                  aria-label="Copy"
-                  title={copy === "done" ? "Copied" : copy === "failed" ? "Could not copy. Select the text and copy it instead." : "Copy"}
-                  onClick={() => void copyText()}
-                >
-                  <Icon name={copy === "done" ? "check" : copy === "failed" ? "alert" : "copy"} />
-                </button>
-              ) : null}
+              {canCopy ? <CopyButton text={reply.text} onState={setCopy} /> : null}
               {onReplyPrivately ? (
                 <button
                   type="button"
@@ -487,9 +464,6 @@ function ReplyView({
               {reply.status === "done" || reply.status === "error" ? (
                 <Votes votes={reply.votes ?? 0} onVote={(delta) => onVote(reply.id, delta)} />
               ) : null}
-              <span className="sr-only" role="status">
-                {copy === "done" ? "Copied" : copy === "failed" ? "Could not copy" : ""}
-              </span>
             </div>
           </div>
         )}

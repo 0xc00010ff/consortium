@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Attachment, SeatColor, ToolActivity } from "@/lib/types";
+import { copyToClipboard } from "@/lib/ui/download";
 import { displayUrl } from "@/lib/ui/format";
 import { STOPPED } from "@/lib/ui/storage";
 import { Icon, type IconName } from "./Icon";
@@ -75,6 +76,57 @@ export function IconButton({
     >
       <Icon name={icon} />
     </button>
+  );
+}
+
+export type CopyState = "idle" | "done" | "failed";
+
+// Copies the text and shows for a moment whether it worked. The status after
+// the button tells a screen reader the same. onState hears every change, so a
+// toolbar can stay visible while the result shows.
+export function CopyButton({
+  text,
+  label = "Copy",
+  onState,
+}: {
+  text: string;
+  label?: string;
+  onState?: (state: CopyState) => void;
+}) {
+  const [state, setState] = useState<CopyState>("idle");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  function show(next: CopyState) {
+    setState(next);
+    onState?.(next);
+  }
+
+  async function copy() {
+    const ok = await copyToClipboard(text);
+    show(ok ? "done" : "failed");
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => show("idle"), 1600);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="ibtn sm"
+        aria-label={label}
+        title={state === "done" ? "Copied" : state === "failed" ? "Could not copy. Select the text and copy it instead." : label}
+        onClick={() => void copy()}
+      >
+        <Icon name={state === "done" ? "check" : state === "failed" ? "alert" : "copy"} />
+      </button>
+      <span className="sr-only" role="status">
+        {state === "done" ? "Copied" : state === "failed" ? "Could not copy" : ""}
+      </span>
+    </>
   );
 }
 

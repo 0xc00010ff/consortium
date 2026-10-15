@@ -2438,24 +2438,17 @@ button.round-btn:focus-visible {
   color: var(--text-2);
 }
 
-.pm-act.ibtn {
-  margin: -2px 0 -2px auto;
-  width: 24px;
-  height: 24px;
-  opacity: 0;
-  transition: opacity 0.12s, background-color 0.12s, color 0.12s;
+/* The row under a side-conversation message. It is the reply toolbar, a
+   little tighter. The (hover: none) rule for .tbar shows it on touch. */
+.pm-bar {
+  height: 28px;
+  margin: 2px 0 0 -6px;
 }
 
-.pm:hover .pm-act,
-.pm:focus-within .pm-act,
-.pm-act:focus-visible {
+.pm:hover .pm-bar > *,
+.pm:focus-within .pm-bar > *,
+.pm-bar.keep > * {
   opacity: 1;
-}
-
-@media (hover: none) {
-  .pm-act.ibtn {
-    opacity: 1;
-  }
 }
 
 .pm .msg-text {
