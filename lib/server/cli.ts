@@ -9,13 +9,14 @@
 //     --verbose --include-partial-messages --no-session-persistence
 //     --safe-mode --strict-mcp-config --disable-slash-commands
 //     --permission-prompts none --max-turns 8 [--model <tool model>]
-//     --system-prompt=<instructions>
+//     [--effort <thinking level>] --system-prompt=<instructions>
 //     --tools ""                                   (browsing off)
 //     --tools WebSearch,WebFetch --allowedTools WebSearch,WebFetch  (browsing on)
 //
 // Codex:
 //   codex exec --json --skip-git-repo-check --ephemeral --sandbox read-only
-//     --color never -C <folder> [-m <tool model>] -c approval_policy="never"
+//     --color never -C <folder> [-m <tool model>]
+//     [-c model_reasoning_effort="<thinking level>"] -c approval_policy="never"
 //     -c web_search="live" | -c web_search="disabled"
 //     -c features.<name>=false ...  -c mcp_servers.<name>.enabled=false ...
 //     -i <image> ...
@@ -26,7 +27,15 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import type { ChatTurn, SpeakEvent, SpeakRequest, ToolName, Usage } from "@/lib/types";
-import { CLAUDE_CODE_ID, codexMcpServerNames, isToolModelId, readCodexConfig, rememberModel, type CliTool } from "./cliTools";
+import {
+  CLAUDE_CODE_ID,
+  codexMcpServerNames,
+  isThinkingLevel,
+  isToolModelId,
+  readCodexConfig,
+  rememberModel,
+  type CliTool,
+} from "./cliTools";
 import { toolLabel } from "./gateway";
 
 export const CLAUDE_MAX_TURNS = 8; // a few searches and page reads, then the answer
@@ -69,6 +78,8 @@ export async function* cliSpeakEvents({
       args = claudeArgs(request);
       stdin = claudeInput(parts);
       if (request.maxOutputTokens) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(request.maxOutputTokens);
+      // CLAUDE_CODE_EFFORT_LEVEL would win over --effort, so a chosen level removes it.
+      if (isThinkingLevel(request.thinking)) delete env.CLAUDE_CODE_EFFORT_LEVEL;
       // The list shows the model a call names as the tool's default, so a call
       // with a chosen model leaves it alone.
       const chosen = isToolModelId(request.toolModel);
@@ -151,8 +162,9 @@ export function claudeArgs(request: SpeakRequest): string[] {
     "--permission-prompts", "none",
     "--max-turns", String(CLAUDE_MAX_TURNS),
   ];
-  // Without a chosen model the tool runs on its own default.
+  // Without a chosen model or level the tool runs on its own default.
   if (isToolModelId(request.toolModel)) args.push("--model", request.toolModel);
+  if (isThinkingLevel(request.thinking)) args.push("--effort", request.thinking);
   args.push(
     // The = form keeps instructions that start with "-" from reading as a flag.
     `--system-prompt=${request.instructions.trim() || "Answer the user's message."}`,
@@ -448,8 +460,9 @@ export function codexArgs(request: SpeakRequest, { dir, images, config }: { dir:
     "--color", "never",
     "-C", dir,
   ];
-  // Without a chosen model the tool runs on its own default.
+  // Without a chosen model or level the tool runs on its own default.
   if (isToolModelId(request.toolModel)) args.push("-m", request.toolModel);
+  if (isThinkingLevel(request.thinking)) args.push("-c", `model_reasoning_effort="${request.thinking}"`);
   args.push(
     "-c", 'approval_policy="never"',
     "-c", request.browsing ? 'web_search="live"' : 'web_search="disabled"',

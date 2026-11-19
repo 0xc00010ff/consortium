@@ -82,6 +82,7 @@ export function buildSeatRequest(table: Table, seatId: SeatId): SpeakRequest {
   return {
     modelId: seat.modelId,
     ...(seat.toolModel ? { toolModel: seat.toolModel } : {}),
+    ...(seat.thinking ? { thinking: seat.thinking } : {}),
     instructions: seatInstructions(table, seats, seat, round.interaction, turns),
     messages: [userMessage(transcript, images, now)],
     browsing: seat.browsing,
@@ -115,6 +116,7 @@ export function buildArbiterRequest(table: Table, arbiterId: string): SpeakReque
   return {
     modelId: arbiter.modelId,
     ...(arbiter.toolModel ? { toolModel: arbiter.toolModel } : {}),
+    ...(arbiter.thinking ? { thinking: arbiter.thinking } : {}),
     instructions: arbiterInstructions(table, round, arbiter),
     messages: [userMessage(transcript, images, now)],
     browsing: arbiter.browsing,
@@ -151,6 +153,7 @@ export function buildPrivateRequest(table: Table, participantId: string): SpeakR
   return {
     modelId: seat.modelId,
     ...(seat.toolModel ? { toolModel: seat.toolModel } : {}),
+    ...(seat.thinking ? { thinking: seat.thinking } : {}),
     instructions: seatInstructions(table, last?.seats ?? table.seats, seat, interaction, turns),
     messages: [userMessage(transcript, images, now)],
     browsing: seat.browsing,
@@ -181,6 +184,7 @@ function buildArbiterPrivateRequest(table: Table, arbiter: Arbiter): SpeakReques
   return {
     modelId: arbiter.modelId,
     ...(arbiter.toolModel ? { toolModel: arbiter.toolModel } : {}),
+    ...(arbiter.thinking ? { thinking: arbiter.thinking } : {}),
     instructions: arbiterInstructions(table, last, arbiter),
     messages: [userMessage(transcript, images, now)],
     browsing: arbiter.browsing,

@@ -2237,8 +2237,10 @@ button.round-btn:focus-visible {
 
 /* An agent block has the arbiter block's shape. Line 1: drag handle, color,
    name, Web, the on/off switch and remove. Line 2: the model, with a tool's
-   own model select beside it. Line 3: the prompt. Lines 2 and 3 start at the
-   avatar, so the handle keeps a column of its own. */
+   own model select or a gateway model's thinking select beside it. A tool's
+   thinking select gets a line of its own under that. Then the prompt. The
+   lines after the first start at the avatar, so the handle keeps a column of
+   its own. */
 .agent {
   display: flex;
   flex-direction: column;
@@ -2259,6 +2261,11 @@ button.round-btn:focus-visible {
 /* A tool's name is short, so its own model select takes the wider column. */
 .agent > .agent-model.two {
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+}
+
+/* A gateway model and its thinking level share the line evenly. */
+.agent > .agent-model.with-thinking {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
 .agent .web {
@@ -2378,8 +2385,10 @@ button.round-btn:focus-visible {
   width: auto;
 }
 
-/* A tool's model select sits close under the model row, at full width. */
-.arb > .tool-model {
+/* A tool's model select and the thinking select sit close under the model
+   row, at full width. */
+.arb > .tool-model,
+.arb > .thinking {
   margin-top: -4px;
 }
 

@@ -18,6 +18,7 @@ import {
 } from "@/lib/types";
 import {
   COLOR_LABELS,
+  defaultThinkingLabel,
   freshSeatLetter,
   MAX_SEATS,
   MODE_LABELS,
@@ -28,7 +29,11 @@ import {
   newSeat,
   seatColor,
   seatName,
+  showsThinking,
+  thinkingChoices,
+  thinkingLabel,
   withModel,
+  withToolModel,
 } from "@/lib/ui/view";
 import { applyPreset, builtinPresets, deletePreset, savePreset, usePresets } from "@/lib/ui/presets";
 import { Icon } from "./Icon";
@@ -152,6 +157,18 @@ export function ParticipantsPanel({
           <ul className={cx("prows", sorting && "sorting")} ref={listRef}>
             {table.seats.map((seat) => {
               const on = seat.active !== false;
+              // A gateway model's thinking select sits beside it. A tool keeps
+              // its own model select there, so the thinking select goes under.
+              const tool = seat.modelId.startsWith("cli/");
+              const thinking = showsThinking(seat, models) ? (
+                <ThinkingSelect
+                  participant={seat}
+                  who={`Agent ${seat.id}`}
+                  models={models}
+                  disabled={disabled}
+                  onChange={(level) => setSeat(seat.id, { ...seat, thinking: level })}
+                />
+              ) : null;
               return (
                 <li key={seat.id} data-seat={seat.id} className={cx("agent", !on && "off", rowClass(seat.id))}>
                   <div className="prow">
@@ -188,7 +205,7 @@ export function ParticipantsPanel({
                       disabled={disabled || table.seats.length <= 1}
                     />
                   </div>
-                  <div className={cx("prow agent-model", seat.modelId.startsWith("cli/") && "two")}>
+                  <div className={cx("prow agent-model", tool && "two", !tool && thinking && "with-thinking")}>
                     <ModelSelect
                       label={`Model for Agent ${seat.id}`}
                       value={seat.modelId}
@@ -202,9 +219,11 @@ export function ParticipantsPanel({
                       who={`Agent ${seat.id}`}
                       models={models}
                       disabled={disabled}
-                      onChange={(toolModel) => setSeat(seat.id, { ...seat, toolModel })}
+                      onChange={(toolModel) => setSeat(seat.id, withToolModel(seat, models, toolModel))}
                     />
+                    {tool ? null : thinking}
                   </div>
+                  {tool && thinking ? <div className="prow agent-model">{thinking}</div> : null}
                   <SeatPrompt
                     seat={seat}
                     open={Boolean(promptOpen[seat.id])}
@@ -282,8 +301,17 @@ export function ParticipantsPanel({
                     who={arbiter.name || "this arbiter"}
                     models={models}
                     disabled={disabled}
-                    onChange={(toolModel) => setArbiter(arbiter.id, { ...arbiter, toolModel })}
+                    onChange={(toolModel) => setArbiter(arbiter.id, withToolModel(arbiter, models, toolModel))}
                   />
+                  {showsThinking(arbiter, models) ? (
+                    <ThinkingSelect
+                      participant={arbiter}
+                      who={arbiter.name || "this arbiter"}
+                      models={models}
+                      disabled={disabled}
+                      onChange={(level) => setArbiter(arbiter.id, { ...arbiter, thinking: level })}
+                    />
+                  ) : null}
                   <textarea
                     className="input"
                     rows={3}
@@ -740,6 +768,43 @@ function ToolModelSelect({
         {choices.map((c) => (
           <option key={c.id} value={c.id}>
             {c.name}
+          </option>
+        ))}
+      </select>
+      <Icon name="chevronDown" size={14} />
+    </span>
+  );
+}
+
+// The thinking level, beside a gateway model or under a tool's selects.
+// "Default thinking" stores no level, so the model or tool uses its own. The
+// choices are the levels the model offers. A level that is no longer offered
+// stays selectable, as in ModelSelect.
+function ThinkingSelect({
+  participant,
+  who,
+  models,
+  disabled,
+  onChange,
+}: {
+  participant: Seat | Arbiter;
+  who: string;
+  models: ModelInfo[];
+  disabled: boolean;
+  onChange: (level: string | undefined) => void;
+}) {
+  const { levels, defaultLevel } = thinkingChoices(participant, models);
+  const value = participant.thinking ?? "";
+  const known = !value || levels.includes(value);
+  const label = `Thinking for ${who}`;
+  return (
+    <span className="select thinking">
+      <select value={value} aria-label={label} title={label} disabled={disabled} onChange={(e) => onChange(e.target.value || undefined)}>
+        <option value="">{defaultThinkingLabel(defaultLevel)}</option>
+        {known ? null : <option value={value}>{thinkingLabel(value)}</option>}
+        {levels.map((level) => (
+          <option key={level} value={level}>
+            {thinkingLabel(level)}
           </option>
         ))}
       </select>

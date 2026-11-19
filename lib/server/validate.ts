@@ -2,7 +2,7 @@
 
 import type { Attachment, ChatTurn, MockHint, SeatId, SpeakRequest } from "@/lib/types";
 import { SEAT_LETTERS } from "@/lib/types";
-import { isToolModelId } from "./cliTools";
+import { isThinkingLevel, isToolModelId } from "./cliTools";
 
 const MAX_OUTPUT_TOKENS_CAP = 16000;
 
@@ -56,6 +56,8 @@ export function parseSpeakRequest(body: unknown): ParsedSpeakRequest {
   }
   // It becomes a command line argument, so anything else is dropped.
   if (isToolModelId(body.toolModel)) request.toolModel = body.toolModel;
+  // A command line argument too, so only a short lowercase word is kept.
+  if (isThinkingLevel(body.thinking)) request.thinking = body.thinking;
   const hint = parseMockHint(body.mockHint);
   if (hint) request.mockHint = hint;
   return { ok: true, request };

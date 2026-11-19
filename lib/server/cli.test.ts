@@ -122,6 +122,16 @@ describe("Claude Code arguments", () => {
     expect(args.slice(-2)).toEqual(["--tools", ""]);
     expect(claudeArgs(request({ toolModel: "--bare" }))).not.toContain("--model");
   });
+
+  it("adds --effort with a chosen thinking level, and nothing without one or for an unsafe one", () => {
+    const args = claudeArgs(request({ toolModel: "opus", thinking: "max" }));
+    expect(args.slice(args.indexOf("--effort"), args.indexOf("--effort") + 2)).toEqual(["--effort", "max"]);
+    expect(args.filter((a) => a === "--effort")).toHaveLength(1);
+    expect(args.slice(-2)).toEqual(["--tools", ""]);
+    expect(claudeArgs(request())).not.toContain("--effort");
+    expect(claudeArgs(request({ thinking: "--bare" }))).not.toContain("--effort");
+    expect(claudeArgs(request({ thinking: "high low" }))).not.toContain("--effort");
+  });
 });
 
 describe("Codex arguments", () => {
@@ -159,6 +169,23 @@ describe("Codex arguments", () => {
     expect(args[args.indexOf("-m") + 1]).toBe("gpt-6.1-sol");
     expect(args.slice(-2)).toEqual(["-i", "/tmp/x/image-1.png"]);
     expect(codexArgs(request({ modelId: CODEX_ID, toolModel: "-c" }), { dir: "/tmp/x", images: [], config: "" })).not.toContain("-m");
+  });
+
+  it("sets model_reasoning_effort with a chosen thinking level, before the images", () => {
+    const args = codexArgs(request({ modelId: CODEX_ID, thinking: "ultra" }), {
+      dir: "/tmp/x",
+      images: [{ file: "/tmp/x/image-1.png", name: "chart.png" }],
+      config: "",
+    });
+    expect(args.slice(args.indexOf('model_reasoning_effort="ultra"') - 1, args.indexOf('model_reasoning_effort="ultra"') + 1)).toEqual([
+      "-c",
+      'model_reasoning_effort="ultra"',
+    ]);
+    expect(args.slice(-2)).toEqual(["-i", "/tmp/x/image-1.png"]);
+    const plain = codexArgs(request({ modelId: CODEX_ID }), { dir: "/tmp/x", images: [], config: "" });
+    expect(plain.some((a) => a.startsWith("model_reasoning_effort"))).toBe(false);
+    const unsafe = codexArgs(request({ modelId: CODEX_ID, thinking: 'high" -c x="y' }), { dir: "/tmp/x", images: [], config: "" });
+    expect(unsafe.some((a) => a.startsWith("model_reasoning_effort"))).toBe(false);
   });
 });
 
@@ -341,6 +368,51 @@ describe("running the tool", () => {
     );
     const codexArgv = codex.record().argv;
     expect(codexArgv.slice(codexArgv.indexOf("-m"), codexArgv.indexOf("-m") + 2)).toEqual(["-m", "gpt-6-luna"]);
+  });
+
+  it("passes a chosen thinking level to Claude Code over CLAUDE_CODE_EFFORT_LEVEL, and leaves that alone otherwise", async () => {
+    const saved = process.env.CLAUDE_CODE_EFFORT_LEVEL;
+    process.env.CLAUDE_CODE_EFFORT_LEVEL = "low";
+    try {
+      const chosen = fakeTool({ lines: CLAUDE_BROWSING_LINES });
+      await collect(
+        cliSpeakEvents({
+          request: request({ thinking: "high" }),
+          signal: new AbortController().signal,
+          tool: { id: CLAUDE_CODE_ID, bin: "claude" },
+          spawnFn: chosen.spawnFn,
+        }),
+      );
+      const argv = chosen.record().argv;
+      expect(argv.slice(argv.indexOf("--effort"), argv.indexOf("--effort") + 2)).toEqual(["--effort", "high"]);
+      // The variable would win over --effort, so it is removed for this call.
+      expect(chosen.record().env.effortLevel).toBeNull();
+
+      const plain = fakeTool({ lines: CLAUDE_BROWSING_LINES });
+      await collect(
+        cliSpeakEvents({ request: request(), signal: new AbortController().signal, tool: { id: CLAUDE_CODE_ID, bin: "claude" }, spawnFn: plain.spawnFn }),
+      );
+      expect(plain.record().argv).not.toContain("--effort");
+      expect(plain.record().env.effortLevel).toBe("low");
+    } finally {
+      if (saved === undefined) delete process.env.CLAUDE_CODE_EFFORT_LEVEL;
+      else process.env.CLAUDE_CODE_EFFORT_LEVEL = saved;
+    }
+  });
+
+  it("passes a chosen thinking level to Codex as a config value", async () => {
+    const codex = fakeTool({ lines: CODEX_BROWSING_LINES });
+    await collect(
+      cliSpeakEvents({
+        request: request({ modelId: CODEX_ID, thinking: "xhigh" }),
+        signal: new AbortController().signal,
+        tool: { id: CODEX_ID, bin: "codex" },
+        spawnFn: codex.spawnFn,
+        codexConfig: "",
+      }),
+    );
+    const argv = codex.record().argv;
+    expect(argv[argv.indexOf('model_reasoning_effort="xhigh"') - 1]).toBe("-c");
   });
 
   it("passes no model flag to either tool without a chosen model", async () => {

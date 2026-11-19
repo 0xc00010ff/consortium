@@ -6,7 +6,15 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { SpeakEvent, SpeakRequest } from "@/lib/types";
-import { describeModelError, describeToolOutput, streamSpeakEvents, toModelMessages, toolLabel, toSpeakEvents } from "./gateway";
+import {
+  describeModelError,
+  describeToolOutput,
+  streamSpeakEvents,
+  thinkingSettings,
+  toModelMessages,
+  toolLabel,
+  toSpeakEvents,
+} from "./gateway";
 
 type StreamPart = Awaited<ReturnType<MockLanguageModelV4["doStream"]>>["stream"] extends ReadableStream<infer T> ? T : never;
 
@@ -160,6 +168,38 @@ describe("streamSpeakEvents", () => {
     expect(model.doStreamCalls[0].tools ?? []).toEqual([]);
   });
 
+  it("passes the thinking level to the model, and nothing without one", async () => {
+    const answer = () => ({
+      stream: simulateReadableStream({
+        chunks: [
+          { type: "stream-start" as const, warnings: [] },
+          { type: "text-start" as const, id: "t" },
+          { type: "text-delta" as const, id: "t", delta: "Hi." },
+          { type: "text-end" as const, id: "t" },
+          { type: "finish" as const, finishReason: { unified: "stop" as const, raw: "stop" }, usage: usage(3, 1) },
+        ],
+      }),
+    });
+    const callWith = async (thinking: string | undefined, modelId = "google/gemini-4-neon") => {
+      const model = new MockLanguageModelV4({ doStream: async () => answer() });
+      await collect(
+        streamSpeakEvents({ model, request: { ...request, modelId, browsing: false, thinking }, signal: new AbortController().signal }),
+      );
+      return model.doStreamCalls[0];
+    };
+
+    const high = await callWith("high");
+    expect(high.reasoning).toBe("high");
+    expect(high.providerOptions?.anthropic).toBeUndefined();
+
+    const none = await callWith(undefined);
+    expect(none.reasoning ?? "provider-default").toBe("provider-default");
+
+    const max = await callWith("max", "anthropic/claude-opus-5.5");
+    expect(max.reasoning).toBe("xhigh");
+    expect(max.providerOptions?.anthropic).toEqual({ thinking: { type: "adaptive" }, effort: "max" });
+  });
+
   it("emits one plain error event when the model call fails", async () => {
     const model = new MockLanguageModelV4({
       doStream: async () => {
@@ -175,6 +215,38 @@ describe("streamSpeakEvents", () => {
         message: "The AI Gateway did not accept the API key. Check the gateway key in Settings.",
       },
     ]);
+  });
+});
+
+describe("thinking settings", () => {
+  it("sends nothing without a level, so the model keeps its own default", () => {
+    expect(thinkingSettings("anthropic/claude-opus-5.5", undefined)).toEqual({});
+    expect(thinkingSettings("anthropic/claude-opus-5.5", "")).toEqual({});
+  });
+
+  it("uses the AI SDK's own setting for the levels it knows", () => {
+    for (const level of ["none", "minimal", "low", "medium", "high", "xhigh"]) {
+      expect(thinkingSettings("google/gemini-4-neon", level)).toEqual({ reasoning: level });
+      expect(thinkingSettings("anthropic/claude-sonnet-5.5", level)).toEqual({ reasoning: level });
+    }
+  });
+
+  it("sends max through each maker's own options, with xhigh for the rest", () => {
+    expect(thinkingSettings("anthropic/claude-fable-5.2", "max")).toEqual({
+      reasoning: "xhigh",
+      providerOptions: { anthropic: { thinking: { type: "adaptive" }, effort: "max" } },
+    });
+    expect(thinkingSettings("openai/gpt-6.2-sol", "max")).toEqual({
+      reasoning: "xhigh",
+      providerOptions: { openai: { reasoningEffort: "max" } },
+    });
+    expect(thinkingSettings("google/gemini-4-neon", "max")).toEqual({ reasoning: "xhigh" });
+    expect(thinkingSettings("spacexai/grok-4.7", "max")).toEqual({ reasoning: "xhigh" });
+  });
+
+  it("leaves out a level it does not know", () => {
+    expect(thinkingSettings("openai/gpt-6.2-sol", "ultra")).toEqual({});
+    expect(thinkingSettings("openai/gpt-6.2-sol", "instant")).toEqual({});
   });
 });
 

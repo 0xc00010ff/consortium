@@ -683,6 +683,20 @@ describe("tool models", () => {
   });
 });
 
+describe("thinking levels", () => {
+  it("reach the request for agents and arbiters, and stay absent when none is set", () => {
+    const base = makeTable({ arbiters: [makeArbiter(1, { thinking: "max" }), makeArbiter(2)] });
+    const seats = base.seats.map((s, i) => (i === 0 ? { ...s, thinking: "high" } : s));
+    const table = running({ ...base, seats }, 1);
+    expect(buildSeatRequest(table, "A").thinking).toBe("high");
+    expect(buildSeatRequest(table, "B")).not.toHaveProperty("thinking");
+    expect(buildArbiterRequest(table, "arbiter-1").thinking).toBe("max");
+    expect(buildArbiterRequest(table, "arbiter-2")).not.toHaveProperty("thinking");
+    expect(buildPrivateRequest({ ...base, seats }, "A").thinking).toBe("high");
+    expect(buildPrivateRequest({ ...base, seats }, "arbiter-1").thinking).toBe("max");
+  });
+});
+
 describe("agent names", () => {
   // Seats A, B, C... with the host's names for some of them.
   const named = (names: Record<string, string>, count = 3) => makeSeats(count).map((s) => (names[s.id] !== undefined ? { ...s, name: names[s.id] } : s));

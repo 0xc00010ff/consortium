@@ -13,7 +13,10 @@ import {
   type TextStreamPart,
   type ToolSet,
 } from "ai";
+import type { AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
+import type { OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
 import type { Attachment, ChatTurn, SpeakEvent, SpeakRequest, ToolName, Usage } from "@/lib/types";
+import { makerOf } from "./models";
 import { browsingTools, NO_WEB_SEARCH_NOTE } from "./tools";
 
 const MAX_STEPS = 6; // search, read, then answer
@@ -47,6 +50,7 @@ export async function* streamSpeakEvents({
     tools: browsing,
     stopWhen: isStepCount(MAX_STEPS),
     maxOutputTokens: request.maxOutputTokens,
+    ...thinkingSettings(request.modelId, request.thinking),
     abortSignal: signal,
     onError: ({ error }) => {
       failure = error;
@@ -54,6 +58,49 @@ export async function* streamSpeakEvents({
   });
 
   yield* toSpeakEvents(result.stream, { modelId: request.modelId, signal, started, failure: () => failure, service });
+}
+
+// ---------- Thinking ----------
+
+type StreamTextOptions = Parameters<typeof streamText>[0];
+export type ThinkingSettings = Pick<StreamTextOptions, "reasoning" | "providerOptions">;
+
+// The levels the AI SDK's own reasoning setting takes. Each provider package
+// turns them into its maker's setting.
+const SDK_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+type SdkLevel = (typeof SDK_LEVELS)[number];
+
+function isSdkLevel(level: string): level is SdkLevel {
+  return (SDK_LEVELS as readonly string[]).includes(level);
+}
+
+// The streamText settings for a thinking level. No level means the model's
+// own default, so nothing is sent.
+//
+// The AI SDK's setting stops at "xhigh", so "max" goes in the maker's own
+// provider options: Anthropic's effort with adaptive thinking, and OpenAI's
+// reasoning effort. Those options win over the shared setting, which is
+// still sent as "xhigh" for a route that does not read them. Google and xAI
+// have no level above "xhigh", so they get "xhigh". A level the AI SDK does
+// not know, other than "max", is left out.
+export function thinkingSettings(modelId: string, level: string | undefined): ThinkingSettings {
+  if (!level) return {};
+  if (isSdkLevel(level)) return { reasoning: level };
+  if (level !== "max") return {};
+  switch (makerOf(modelId)) {
+    case "anthropic":
+      return {
+        reasoning: "xhigh",
+        providerOptions: { anthropic: { thinking: { type: "adaptive" }, effort: "max" } satisfies AnthropicLanguageModelOptions },
+      };
+    case "openai":
+      return {
+        reasoning: "xhigh",
+        providerOptions: { openai: { reasoningEffort: "max" } satisfies OpenAILanguageModelResponsesOptions },
+      };
+    default:
+      return { reasoning: "xhigh" };
+  }
 }
 
 // The table's instructions mention web search. When browsing is on without

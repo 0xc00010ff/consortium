@@ -22,7 +22,7 @@ export interface FakeRecord {
   files: string[];
   input: string;
   pid: number;
-  env: { anthropicKey: string | null; maxOutput: string | null };
+  env: { anthropicKey: string | null; maxOutput: string | null; effortLevel: string | null };
 }
 
 export interface FakeTool {
@@ -60,6 +60,7 @@ process.stdin.on("end", () => {
     env: {
       anthropicKey: process.env.ANTHROPIC_API_KEY ?? null,
       maxOutput: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS ?? null,
+      effortLevel: process.env.CLAUDE_CODE_EFFORT_LEVEL ?? null,
     },
   }));
   for (const line of lines) process.stdout.write(line + "\\n");

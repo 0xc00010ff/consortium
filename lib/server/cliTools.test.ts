@@ -3,15 +3,21 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  CLAUDE_THINKING_LEVELS,
   CLAUDE_TOOL_MODELS,
+  claudeConfiguredEffort,
   claudeConfiguredModel,
   cliModelInfos,
+  CODEX_THINKING_LEVELS,
+  codexEffortFromToml,
   codexToolModels,
   codexMcpServerNames,
   codexModelFromToml,
+  codexModelThinking,
   detectCliTools,
   findClaudeBin,
   formatClaudeModel,
+  isThinkingLevel,
   isToolModelId,
 } from "./cliTools";
 
@@ -61,6 +67,66 @@ describe("default model names", () => {
   });
 });
 
+describe("default thinking levels", () => {
+  it("reads Claude Code's level from CLAUDE_CODE_EFFORT_LEVEL, then effortLevel in settings.json", () => {
+    const dir = tempDir();
+    expect(claudeConfiguredEffort({ CLAUDE_CONFIG_DIR: dir })).toBeNull();
+    writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ model: "opus", effortLevel: "xhigh" }));
+    expect(claudeConfiguredEffort({ CLAUDE_CONFIG_DIR: dir })).toBe("xhigh");
+    expect(claudeConfiguredEffort({ CLAUDE_CONFIG_DIR: dir, CLAUDE_CODE_EFFORT_LEVEL: "Low" })).toBe("low");
+    // "auto" and "unset" leave the model's own default, which is not known here.
+    expect(claudeConfiguredEffort({ CLAUDE_CONFIG_DIR: dir, CLAUDE_CODE_EFFORT_LEVEL: "auto" })).toBeNull();
+    expect(claudeConfiguredEffort({ CLAUDE_CONFIG_DIR: dir, CLAUDE_CODE_EFFORT_LEVEL: "unset" })).toBeNull();
+    writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ effortLevel: "very much" }));
+    expect(claudeConfiguredEffort({ CLAUDE_CONFIG_DIR: dir })).toBeNull();
+  });
+
+  it("reads Codex's level from model_reasoning_effort at the top of config.toml", () => {
+    expect(codexEffortFromToml('model = "gpt-6.1-sol"\nmodel_reasoning_effort = "low"\n')).toBe("low");
+    expect(codexEffortFromToml("model_reasoning_effort = 'XHigh'\n")).toBe("xhigh");
+    expect(codexEffortFromToml('[profiles.deep]\nmodel_reasoning_effort = "max"\n')).toBeNull();
+    expect(codexEffortFromToml('model = "gpt-6.1-sol"\n')).toBeNull();
+    // The model setting is not confused with the longer key.
+    expect(codexModelFromToml('model_reasoning_effort = "low"\nmodel = "gpt-6-luna"\n')).toBe("gpt-6-luna");
+  });
+
+  it("reads each model's levels and default from Codex's models_cache.json", () => {
+    const cache = {
+      fetched_at: "2026-11-18T00:00:00Z",
+      models: [
+        {
+          slug: "gpt-6.1-sol",
+          visibility: "list",
+          default_reasoning_level: "low",
+          supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max", "ultra"].map((effort) => ({ effort, description: "..." })),
+        },
+        {
+          slug: "gpt-6-luna",
+          visibility: "list",
+          default_reasoning_level: "medium",
+          supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }, { effort: "max" }, { effort: "max" }, { effort: "-x" }],
+        },
+        { slug: "no-levels", supported_reasoning_levels: [] },
+        { slug: "--bad", supported_reasoning_levels: [{ effort: "low" }] },
+        null,
+      ],
+    };
+    expect(codexModelThinking(JSON.stringify(cache))).toEqual({
+      "gpt-6.1-sol": { thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultThinking: "low" },
+      "gpt-6-luna": { thinkingLevels: ["low", "medium", "max"], defaultThinking: "medium" },
+    });
+    expect(codexModelThinking("not json")).toEqual({});
+    expect(codexModelThinking("{}")).toEqual({});
+  });
+
+  it("accepts only short lowercase words as levels", () => {
+    for (const ok of ["low", "xhigh", "max", "ultra", "none", "budget_tokens"]) expect(isThinkingLevel(ok)).toBe(true);
+    for (const bad of ["", "High", "-low", "x y", 'a"', "1low", "x".repeat(17), 5, null, undefined]) {
+      expect(isThinkingLevel(bad)).toBe(false);
+    }
+  });
+});
+
 describe("finding the tools", () => {
   it("finds claude on the PATH", () => {
     const dir = tempDir();
@@ -76,8 +142,8 @@ describe("finding the tools", () => {
     const codex = executable(dir, "my-codex");
     const env = { PATH: "", CONSORTIUM_CLAUDE_BIN: claude, CONSORTIUM_CODEX_BIN: codex, CODEX_HOME: codexDir, CLAUDE_CONFIG_DIR: tempDir() };
     expect(detectCliTools(env)).toEqual([
-      { id: "cli/claude-code", bin: claude, configuredModel: null },
-      { id: "cli/codex", bin: codex, configuredModel: "gpt-6-astra" },
+      { id: "cli/claude-code", bin: claude, configuredModel: null, configuredThinking: null },
+      { id: "cli/codex", bin: codex, configuredModel: "gpt-6-astra", configuredThinking: null, modelThinking: {} },
     ]);
     expect(detectCliTools({ PATH: "", CONSORTIUM_CLAUDE_BIN: "/nonexistent/claude", CONSORTIUM_CODEX_BIN: "/nonexistent/codex" })).toEqual([]);
   });
@@ -105,21 +171,54 @@ describe("tool model choices", () => {
         { id: "sonnet", name: "Sonnet" },
         { id: "haiku", name: "Haiku" },
       ],
+      thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
     });
     info.toolModels?.push({ id: "x", name: "x" });
+    info.thinkingLevels?.push("x");
     expect(CLAUDE_TOOL_MODELS).toHaveLength(4);
+    expect(CLAUDE_THINKING_LEVELS).toHaveLength(5);
+  });
+
+  it("gives Claude Code's levels once for every alias, with the configured default", () => {
+    const [info] = cliModelInfos([{ ...claude, configuredThinking: "xhigh" }]);
+    expect(info.thinkingLevels).toEqual(CLAUDE_THINKING_LEVELS);
+    expect(info.defaultThinking).toBe("xhigh");
+    expect(info.toolModels?.every((m) => m.thinkingLevels === undefined)).toBe(true);
   });
 
   it("offers Codex the given OpenAI models, adding the configured model once at the end", () => {
+    const levels = { thinkingLevels: CODEX_THINKING_LEVELS };
     expect(cliModelInfos([codex], openai)[0]).toEqual({
       id: "cli/codex",
       name: "Codex",
       maker: "openai",
       defaultModel: "gpt-6-astra",
-      toolModels: openai,
+      toolModels: openai.map((m) => ({ ...m, ...levels })),
+      ...levels,
     });
     expect(codexToolModels(openai, "gpt-5.5-codex")).toEqual([...openai, { id: "gpt-5.5-codex", name: "gpt-5.5-codex" }]);
     expect(codexToolModels([], null)).toEqual([]);
+  });
+
+  it("gives each Codex model its levels from the cache, and the config.toml level as every model's default", () => {
+    const modelThinking = {
+      "gpt-6-astra": { thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultThinking: "medium" },
+      "gpt-6-luna": { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], defaultThinking: "medium" },
+    };
+    const [own] = cliModelInfos([{ ...codex, modelThinking }], openai);
+    // The default model is gpt-6-astra, so the tool shows its levels.
+    expect(own.thinkingLevels).toEqual(modelThinking["gpt-6-astra"].thinkingLevels);
+    expect(own.defaultThinking).toBe("medium");
+    expect(own.toolModels).toEqual([
+      { id: "gpt-6-astra", name: "GPT-6 Astra", ...modelThinking["gpt-6-astra"] },
+      // Not in the cache: the levels Codex models usually offer, with no known default.
+      { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", thinkingLevels: CODEX_THINKING_LEVELS },
+      { id: "gpt-6-luna", name: "GPT-6 Luna", ...modelThinking["gpt-6-luna"] },
+    ]);
+
+    const [configured] = cliModelInfos([{ ...codex, modelThinking, configuredThinking: "low" }], openai);
+    expect(configured.defaultThinking).toBe("low");
+    expect(configured.toolModels?.map((m) => m.defaultThinking)).toEqual(["low", "low", "low"]);
   });
 
   it("never lists an empty or unsafe id", () => {

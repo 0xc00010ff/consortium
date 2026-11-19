@@ -39,12 +39,12 @@ describe("GET /api/models in mock mode", () => {
     const body = (await response.json()) as ModelsResponse;
     expect(body.mock).toBe(true);
     expect(body.models).toEqual(MOCK_MODELS);
-    expect(body.models.map((m) => m.id)).toContain("anthropic/claude-fable-5.1");
+    expect(body.models.map((m) => m.id)).toContain("anthropic/claude-fable-5.2");
     expect(body.models.map((m) => m.id)).toContain("anthropic/claude-opus-5.5");
     expect(body.defaults.seats).toEqual([
       "anthropic/claude-sonnet-5.5",
-      "openai/gpt-6.1-sol",
-      "google/gemini-3.1-pro-preview",
+      "openai/gpt-6.2-sol",
+      "google/gemini-4-carbon",
       "spacexai/grok-4.7",
     ]);
     expect(body.defaults.arbiter).toBe("anthropic/claude-opus-5.5");
@@ -96,6 +96,7 @@ describe("GET /api/models with Claude Code installed", () => {
           maker: "anthropic",
           defaultModel: "Opus",
           toolModels: [{ id: "fable", name: "Fable" }, { id: "opus", name: "Opus" }, { id: "sonnet", name: "Sonnet" }, { id: "haiku", name: "Haiku" }],
+          thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
         },
       ],
       defaults: { seats: ["cli/claude-code"], arbiter: "cli/claude-code" },
@@ -114,6 +115,7 @@ describe("GET /api/models with Claude Code installed", () => {
       maker: "anthropic",
       defaultModel: "default model",
       toolModels: [{ id: "fable", name: "Fable" }, { id: "opus", name: "Opus" }, { id: "sonnet", name: "Sonnet" }, { id: "haiku", name: "Haiku" }],
+      thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
     });
     expect(body.models.slice(1)).toEqual(MOCK_MODELS);
     expect(body.defaults.arbiter).toBe("cli/claude-code");

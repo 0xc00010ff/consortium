@@ -14,6 +14,10 @@
 // offers its model aliases, and Codex offers the OpenAI models from the short
 // list.
 //
+// Each model carries the thinking levels it offers. For gateway models they
+// come from the public list, which names them for every model; Claude Code
+// and Codex get theirs from lib/server/cliTools.ts.
+//
 // On a fresh install the response also says needsSetup: true, so the app
 // shows the first-run setup dialog. That is when no key is set in the
 // settings file or the environment, the host has not finished or skipped the
@@ -21,7 +25,7 @@
 // since the dialog's first step shows the tools that were found.
 
 import type { Maker, ModelInfo, ModelsResponse } from "@/lib/types";
-import { CLAUDE_CODE_ID, clearCliToolCache, cliModelInfos, getCliTools, type CliTool } from "./cliTools";
+import { CLAUDE_CODE_ID, clearCliToolCache, cliModelInfos, getCliTools, isThinkingLevel, type CliTool } from "./cliTools";
 import { isForcedMock } from "./env";
 import { gatewayProvider } from "./gatewayClient";
 import { hasAnyModelKey, makersWithKeys, readSettingsFile, resolveKeys, type ResolvedKeys, type SettingsFile } from "./settings";
@@ -56,10 +60,16 @@ const FAMILIES: Record<Maker, Family[]> = {
   openai: [
     { match: /^openai\/gpt-astra$/ },
     { match: /^openai\/gpt-sol$/, seatDefault: true },
+    { match: /^openai\/gpt-terra$/ },
     { match: /^openai\/gpt-luna$/ },
   ],
+  // Gemini 4 replaced Gemini Pro with four named models. Flash and Flash Lite
+  // are still the fast tiers.
   google: [
-    { match: /^google\/gemini-pro(?:-preview)?$/, seatDefault: true },
+    { match: /^google\/gemini-neon$/ },
+    { match: /^google\/gemini-carbon$/, seatDefault: true },
+    { match: /^google\/gemini-argon$/ },
+    { match: /^google\/gemini-hydrogen$/ },
     { match: /^google\/gemini-flash$/ },
     { match: /^google\/gemini-flash-lite$/ },
   ],
@@ -69,22 +79,32 @@ const FAMILIES: Record<Maker, Family[]> = {
   ],
 };
 
+// Thinking levels as the public list gives them for the built-in models.
+const TOP_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+const TOP_LEVELS_WITH_NONE = ["none", ...TOP_LEVELS];
+const TO_XHIGH = ["low", "medium", "high", "xhigh"];
+const TO_HIGH = ["low", "medium", "high"];
+
 // The built-in list for mock mode, used when the public model list cannot
 // be fetched. The ids are real gateway ids, so a table made in mock mode
-// keeps working after a key is added.
+// keeps working after a key is added. The thinking levels are the ones the
+// public list gave for each model.
 export const MOCK_MODELS: ModelInfo[] = [
-  { id: "anthropic/claude-fable-5.1", name: "Claude Fable 5.1", maker: "anthropic" },
-  { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", maker: "anthropic" },
-  { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", maker: "anthropic" },
-  { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", maker: "anthropic" },
-  { id: "openai/gpt-6-astra", name: "GPT-6 Astra", maker: "openai" },
-  { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", maker: "openai" },
-  { id: "openai/gpt-6-luna", name: "GPT-6 Luna", maker: "openai" },
-  { id: "google/gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview", maker: "google" },
-  { id: "google/gemini-3.8-flash", name: "Gemini 3.8 Flash", maker: "google" },
-  { id: "google/gemini-3.5-flash-lite", name: "Gemini 3.5 Flash Lite", maker: "google" },
-  { id: "spacexai/grok-4.7", name: "Grok 4.7", maker: "xai" },
-  { id: "spacexai/grok-4.1-fast-reasoning", name: "Grok 4.1 Fast Reasoning", maker: "xai" },
+  { id: "anthropic/claude-fable-5.2", name: "Claude Fable 5.2", maker: "anthropic", thinkingLevels: TOP_LEVELS },
+  { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", maker: "anthropic", thinkingLevels: TOP_LEVELS },
+  { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", maker: "anthropic", thinkingLevels: TOP_LEVELS },
+  { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", maker: "anthropic", thinkingLevels: TOP_LEVELS_WITH_NONE },
+  { id: "openai/gpt-6.2-astra", name: "GPT-6.2 Astra", maker: "openai", thinkingLevels: TOP_LEVELS },
+  { id: "openai/gpt-6.2-sol", name: "GPT-6.2 Sol", maker: "openai", thinkingLevels: TOP_LEVELS },
+  { id: "openai/gpt-6.1-terra", name: "GPT-6.1 Terra", maker: "openai", thinkingLevels: TOP_LEVELS_WITH_NONE },
+  { id: "openai/gpt-6-luna", name: "GPT-6 Luna", maker: "openai", thinkingLevels: TOP_LEVELS_WITH_NONE },
+  { id: "google/gemini-4-neon", name: "Gemini 4 Neon", maker: "google", thinkingLevels: TO_XHIGH },
+  { id: "google/gemini-4-carbon", name: "Gemini 4 Carbon", maker: "google", thinkingLevels: TO_HIGH },
+  { id: "google/gemini-4-argon", name: "Gemini 4 Argon", maker: "google", thinkingLevels: TO_HIGH },
+  { id: "google/gemini-4-hydrogen", name: "Gemini 4 Hydrogen", maker: "google", thinkingLevels: TO_XHIGH },
+  { id: "google/gemini-3.8-flash", name: "Gemini 3.8 Flash", maker: "google", thinkingLevels: TO_HIGH },
+  { id: "google/gemini-3.5-flash-lite", name: "Gemini 3.5 Flash Lite", maker: "google", thinkingLevels: ["minimal", ...TO_HIGH] },
+  { id: "spacexai/grok-4.7", name: "Grok 4.7", maker: "xai", thinkingLevels: TO_XHIGH },
 ];
 
 // The gateway list for one key, and the public list (null when it could not
@@ -111,7 +131,7 @@ export async function fetchPublicModelList(fetchFn: typeof fetch = fetch): Promi
   const response = await fetchFn(PUBLIC_LIST_URL, { signal: AbortSignal.timeout(8000) });
   if (!response.ok) throw new Error(`The public model list returned status ${response.status}.`);
   const body = (await response.json()) as {
-    data?: Array<{ id?: unknown; name?: unknown; type?: unknown; released?: unknown }>;
+    data?: Array<{ id?: unknown; name?: unknown; type?: unknown; released?: unknown; reasoning_options?: unknown }>;
   };
   if (!Array.isArray(body.data)) throw new Error("The public model list had no data.");
   return body.data
@@ -121,7 +141,25 @@ export async function fetchPublicModelList(fetchFn: typeof fetch = fetch): Promi
       name: typeof m.name === "string" ? m.name : (m.id as string),
       modelType: typeof m.type === "string" ? m.type : null,
       released: typeof m.released === "number" ? m.released : null,
+      thinkingLevels: effortLevels(m.reasoning_options),
     }));
+}
+
+// The public list describes a model's reasoning settings, for example
+// [{"type":"toggle"},{"type":"effort","values":["none","low","high"]}].
+// The values of the "effort" entry are the levels, in order. Other kinds,
+// such as a token budget, offer no levels to choose from.
+export function effortLevels(options: unknown): string[] | null {
+  if (!Array.isArray(options)) return null;
+  const effort = options.find(
+    (o): o is { values: unknown[] } => typeof o === "object" && o !== null && o.type === "effort" && Array.isArray(o.values),
+  );
+  if (!effort) return null;
+  const levels: string[] = [];
+  for (const value of effort.values) {
+    if (isThinkingLevel(value) && !levels.includes(value)) levels.push(value);
+  }
+  return levels.length > 0 ? levels : null;
 }
 
 export interface ModelsOptions {
@@ -188,10 +226,17 @@ function withTools(base: ModelsResponse, found: CliTool[]): ModelsResponse {
   return { ...base, models: [...installed, ...base.models], defaults };
 }
 
+// The gateway's own list for a key does not say which thinking levels a model
+// offers, so they come from the public list by id, or from the built-in list
+// when the public one cannot be read.
 async function gatewayList(now: number, key: string): Promise<ModelsResponse> {
   if (gatewayCache && gatewayCache.key === key && now - gatewayCache.at < CACHE_MS) return gatewayCache.value;
-  const { models } = await gatewayProvider(key).getAvailableModels();
-  const value = buildModelsResponse(models);
+  const [{ models }, publicList] = await Promise.all([gatewayProvider(key).getAvailableModels(), publicEntries(now)]);
+  const levels = new Map<string, string[]>();
+  for (const entry of publicList ?? MOCK_MODELS) {
+    if (entry.thinkingLevels?.length) levels.set(entry.id, entry.thinkingLevels);
+  }
+  const value = buildModelsResponse(models.map((m) => ({ ...m, thinkingLevels: levels.get(m.id) ?? null })));
   gatewayCache = { at: now, key, value };
   return value;
 }
@@ -223,7 +268,9 @@ async function providerList(now: number, makers: Maker[]): Promise<ModelsRespons
   const entries = (await publicEntries(now)) ?? [];
   const fromList = buildModelsResponse(entries.filter((e) => keep(e.id)));
   if (fromList.models.length > 0) return fromList;
-  return buildModelsResponse(MOCK_MODELS.filter((m) => keep(m.id)).map((m) => ({ id: m.id, name: m.name })));
+  return buildModelsResponse(
+    MOCK_MODELS.filter((m) => keep(m.id)).map((m) => ({ id: m.id, name: m.name, thinkingLevels: m.thinkingLevels })),
+  );
 }
 
 export function clearModelsCache(): void {
@@ -237,6 +284,7 @@ export interface GatewayEntry {
   name: string;
   modelType?: string | null;
   released?: number | null; // unix seconds, when the gateway provides it
+  thinkingLevels?: string[] | null; // the model's thinking levels, in order
 }
 
 type Candidate = ModelInfo & { released?: number | null };
@@ -248,7 +296,13 @@ export function buildModelsResponse(entries: GatewayEntry[]): ModelsResponse {
     if (isImageModel(entry)) continue;
     const maker = makerOf(entry.id);
     if (!maker) continue;
-    candidates.push({ id: entry.id, name: entry.name || entry.id, maker, released: entry.released ?? null });
+    candidates.push({
+      id: entry.id,
+      name: entry.name || entry.id,
+      maker,
+      released: entry.released ?? null,
+      ...(entry.thinkingLevels?.length ? { thinkingLevels: entry.thinkingLevels } : {}),
+    });
   }
   const { models, defaults } = curate(candidates);
   return { mock: false, models, defaults };
@@ -309,7 +363,9 @@ export function curate(candidates: Candidate[]): { models: ModelInfo[]; defaults
 }
 
 function strip(candidate: Candidate): ModelInfo {
-  return { id: candidate.id, name: candidate.name, maker: candidate.maker };
+  const model: ModelInfo = { id: candidate.id, name: candidate.name, maker: candidate.maker };
+  if (candidate.thinkingLevels?.length) model.thinkingLevels = [...candidate.thinkingLevels];
+  return model;
 }
 
 function newestOf(candidates: Candidate[]): Candidate | null {

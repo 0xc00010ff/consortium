@@ -30,19 +30,30 @@ const CLAUDE_ALIASES = [
 ];
 // The models Codex accepts, as the Codex command names them.
 const BUILT_IN_CODEX = [
+  { id: "gpt-6.1-terra", name: "GPT-6.1 Terra" },
+  { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
   { id: "gpt-6-astra", name: "GPT-6 Astra" },
-  { id: "gpt-6-pro", name: "GPT-6 Pro" },
-  { id: "gpt-6-sol", name: "GPT-6 Sol" },
   { id: "gpt-6-luna", name: "GPT-6 Luna" },
 ];
+// Without models_cache.json, every Codex model offers low to max.
+const LEVELS = ["low", "medium", "high", "xhigh", "max"];
+const withLevels = (models: Array<{ id: string; name: string }>) => models.map((m) => ({ ...m, thinkingLevels: LEVELS }));
 const claudeInfo = {
   id: "cli/claude-code",
   name: "Claude Code",
   maker: "anthropic",
   defaultModel: "Sonnet 4.5",
   toolModels: CLAUDE_ALIASES,
+  thinkingLevels: LEVELS,
 };
-const codexInfo = { id: "cli/codex", name: "Codex", maker: "openai", defaultModel: "gpt-6-astra", toolModels: BUILT_IN_CODEX };
+const codexInfo = {
+  id: "cli/codex",
+  name: "Codex",
+  maker: "openai",
+  defaultModel: "gpt-6-astra",
+  toolModels: withLevels(BUILT_IN_CODEX),
+  thinkingLevels: LEVELS,
+};
 
 beforeEach(() => {
   isolateSettings();
@@ -88,7 +99,11 @@ describe("the model list with Claude Code and Codex", () => {
     });
     const codexOnly = await getModelsResponse({ tools: [{ ...codex, configuredModel: "gpt-5.5-codex" }] });
     expect(codexOnly.models).toEqual([
-      { ...codexInfo, defaultModel: "gpt-5.5-codex", toolModels: [...BUILT_IN_CODEX, { id: "gpt-5.5-codex", name: "gpt-5.5-codex" }] },
+      {
+        ...codexInfo,
+        defaultModel: "gpt-5.5-codex",
+        toolModels: withLevels([...BUILT_IN_CODEX, { id: "gpt-5.5-codex", name: "gpt-5.5-codex" }]),
+      },
     ]);
     expect(codexOnly.defaults).toEqual({ seats: ["cli/codex"], arbiter: "cli/codex" });
   });
@@ -116,8 +131,30 @@ describe("the model list with Claude Code and Codex", () => {
     ]);
     expect(body.models[0]).toEqual(claudeInfo);
     // Codex keeps its own models whatever the gateway lists; the configured one is already there.
-    expect(body.models[1].toolModels).toEqual(BUILT_IN_CODEX);
+    expect(body.models[1].toolModels).toEqual(withLevels(BUILT_IN_CODEX));
     expect(body.defaults).toEqual({ seats: ["cli/claude-code", "cli/codex"], arbiter: "cli/claude-code" });
+  });
+
+  it("with a key, gives gateway models the thinking levels from the public list, or the built-in list offline", async () => {
+    delete process.env.CONSORTIUM_MOCK;
+    process.env.AI_GATEWAY_API_KEY = "test-key-not-used";
+    const offline = await getModelsResponse({ tools: [] });
+    const builtIn = MOCK_MODELS.find((m) => m.id === "anthropic/claude-haiku-5.5")?.thinkingLevels;
+    expect(offline.models.find((m) => m.id === "anthropic/claude-haiku-5.5")?.thinkingLevels).toEqual(builtIn);
+    expect(offline.models.find((m) => m.id === "openai/gpt-7-sol")).not.toHaveProperty("thinkingLevels");
+
+    clearModelsCache();
+    const publicList = {
+      data: [
+        { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", type: "language", reasoning_options: [{ type: "effort", values: ["low", "high"] }] },
+        { id: "openai/gpt-7-sol", name: "GPT-7 Sol", type: "language", reasoning_options: [{ type: "effort", values: ["low", "max"] }] },
+      ],
+    };
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify(publicList), { status: 200 }));
+    const online = await getModelsResponse({ tools: [] });
+    expect(online.models.find((m) => m.id === "anthropic/claude-haiku-5.5")?.thinkingLevels).toEqual(["low", "high"]);
+    expect(online.models.find((m) => m.id === "openai/gpt-7-sol")?.thinkingLevels).toEqual(["low", "max"]);
+    expect(online.models.find((m) => m.id === "anthropic/claude-sonnet-5.5")).not.toHaveProperty("thinkingLevels");
   });
 
   it("with a key and only Codex, keeps the gateway arbiter", async () => {
@@ -179,7 +216,7 @@ describe("the model list with provider keys only", () => {
       "anthropic/claude-opus-5.5",
       "anthropic/claude-sonnet-5.5",
     ]);
-    expect(body.models[1].toolModels).toEqual(BUILT_IN_CODEX);
+    expect(body.models[1].toolModels).toEqual(withLevels(BUILT_IN_CODEX));
     expect(body.defaults).toEqual({ seats: ["cli/claude-code", "cli/codex"], arbiter: "cli/claude-code" });
   });
 

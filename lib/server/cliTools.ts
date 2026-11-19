@@ -1,11 +1,16 @@
 // Finds the Claude Code and Codex command line tools on this machine, and
-// the model each one uses by default. A tool that is found appears in the
-// model list as "cli/claude-code" or "cli/codex". Calls to it run on the
-// host's own subscription through lib/server/cli.ts.
+// the model and thinking level each one uses by default. A tool that is found
+// appears in the model list as "cli/claude-code" or "cli/codex". Calls to it
+// run on the host's own subscription through lib/server/cli.ts.
 //
 // Detection only looks at files. It never starts either tool. A path saved
 // in the settings file wins over CONSORTIUM_CLAUDE_BIN and
 // CONSORTIUM_CODEX_BIN, which win over the search.
+//
+// Thinking levels: Claude Code takes the same levels for every model, the
+// ones `claude --help` lists for --effort. Codex lists the levels of each
+// model in its models_cache.json, and the list falls back to low to max when
+// that file is missing.
 
 import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import os from "node:os";
@@ -22,10 +27,17 @@ type Env = Record<string, string | undefined>;
 
 export const DEFAULT_MODEL_LABEL = "default model";
 
+// The thinking levels a model offers, and its default level where known.
+export type ThinkingInfo = Pick<ModelInfo, "thinkingLevels" | "defaultThinking">;
+
 export interface CliTool {
   id: CliToolId;
   bin: string; // absolute path of the command
   configuredModel: string | null; // from the tool's settings, before formatting
+  // The thinking level from the tool's settings, used when none is chosen.
+  configuredThinking?: string | null;
+  // Codex: the levels of each model, keyed by model id, from models_cache.json.
+  modelThinking?: Record<string, ThinkingInfo>;
 }
 
 export function isCliModelId(id: string): boolean {
@@ -40,6 +52,20 @@ export function isToolModelId(value: unknown): value is string {
   return typeof value === "string" && TOOL_MODEL_PATTERN.test(value);
 }
 
+// A thinking level becomes a command line argument and a TOML string, so it
+// is a short lowercase word such as "high" or "xhigh".
+const THINKING_LEVEL_PATTERN = /^[a-z][a-z0-9_]{0,15}$/;
+
+export function isThinkingLevel(value: unknown): value is string {
+  return typeof value === "string" && THINKING_LEVEL_PATTERN.test(value);
+}
+
+// The levels Claude Code takes for --effort, the same for every model.
+export const CLAUDE_THINKING_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+
+// The levels Codex models offer when models_cache.json cannot be read.
+export const CODEX_THINKING_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+
 // ---------- Model choices ----------
 
 // The aliases Claude Code accepts for --model. Each one runs the latest
@@ -51,14 +77,14 @@ export const CLAUDE_TOOL_MODELS: ToolModel[] = [
   { id: "haiku", name: "Haiku" },
 ];
 
-// The models Codex accepts with a ChatGPT login. Codex does not take the
-// gateway's ids: "gpt-6.1-sol" fails with "not supported when using Codex
-// with a ChatGPT account". These ids are the ones the Codex command itself
-// names.
+// The models Codex accepts with a ChatGPT login, in the order the Codex
+// command lists them, without the ones it marks as legacy. Codex does not
+// take every gateway id, since its own list often lags behind the gateway's,
+// so these ids come from Codex itself.
 export const CODEX_TOOL_MODELS: ToolModel[] = [
+  { id: "gpt-6.1-terra", name: "GPT-6.1 Terra" },
+  { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
   { id: "gpt-6-astra", name: "GPT-6 Astra" },
-  { id: "gpt-6-pro", name: "GPT-6 Pro" },
-  { id: "gpt-6-sol", name: "GPT-6 Sol" },
   { id: "gpt-6-luna", name: "GPT-6 Luna" },
 ];
 
@@ -153,34 +179,95 @@ function readText(file: string): string | null {
   }
 }
 
-// ANTHROPIC_MODEL wins over the settings file, as it does in Claude Code.
-export function claudeConfiguredModel(env: Env = process.env): string | null {
-  if (env.ANTHROPIC_MODEL?.trim()) return env.ANTHROPIC_MODEL.trim();
+// One string setting from Claude Code's settings.json, or null.
+function claudeSetting(env: Env, key: string): string | null {
   const dir = env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), ".claude");
   const text = readText(path.join(dir, "settings.json"));
   if (!text) return null;
   try {
-    const model = (JSON.parse(text) as { model?: unknown }).model;
-    return typeof model === "string" && model.trim() ? model.trim() : null;
+    const value = (JSON.parse(text) as Record<string, unknown>)[key];
+    return typeof value === "string" && value.trim() ? value.trim() : null;
   } catch {
     return null;
   }
 }
 
-export function codexConfigPath(env: Env = process.env): string {
-  const dir = env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
-  return path.join(dir, "config.toml");
+// ANTHROPIC_MODEL wins over the settings file, as it does in Claude Code.
+export function claudeConfiguredModel(env: Env = process.env): string | null {
+  if (env.ANTHROPIC_MODEL?.trim()) return env.ANTHROPIC_MODEL.trim();
+  return claudeSetting(env, "model");
 }
 
-// Reads `model = "..."` from the top of config.toml, before the first table.
-export function codexModelFromToml(toml: string): string | null {
+// CLAUDE_CODE_EFFORT_LEVEL wins over effortLevel in the settings file, as it
+// does in Claude Code. Its values "auto" and "unset" leave the model's own
+// default in place, which is not known here.
+export function claudeConfiguredEffort(env: Env = process.env): string | null {
+  const fromEnv = env.CLAUDE_CODE_EFFORT_LEVEL?.trim().toLowerCase();
+  if (fromEnv) return fromEnv === "auto" || fromEnv === "unset" || !isThinkingLevel(fromEnv) ? null : fromEnv;
+  const fromSettings = claudeSetting(env, "effortLevel")?.toLowerCase();
+  return isThinkingLevel(fromSettings) ? fromSettings : null;
+}
+
+function codexHome(env: Env): string {
+  return env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
+}
+
+export function codexConfigPath(env: Env = process.env): string {
+  return path.join(codexHome(env), "config.toml");
+}
+
+// Reads `key = "..."` from the top of config.toml, before the first table.
+function topLevelTomlString(toml: string, key: string): string | null {
+  const pattern = new RegExp(`^${key}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`);
   for (const raw of toml.split("\n")) {
     const line = raw.trim();
     if (line.startsWith("[")) break;
-    const match = /^model\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(line);
+    const match = pattern.exec(line);
     if (match) return (match[1] ?? match[2]).trim() || null;
   }
   return null;
+}
+
+export function codexModelFromToml(toml: string): string | null {
+  return topLevelTomlString(toml, "model");
+}
+
+// The thinking level Codex uses when none is chosen: model_reasoning_effort.
+export function codexEffortFromToml(toml: string): string | null {
+  const effort = topLevelTomlString(toml, "model_reasoning_effort")?.toLowerCase();
+  return isThinkingLevel(effort) ? effort : null;
+}
+
+// Codex keeps the models its account offers in models_cache.json, each with
+// its thinking levels and default level. Returns the levels by model id, or
+// an empty record when the text cannot be read.
+export function codexModelThinking(json: string): Record<string, ThinkingInfo> {
+  let models: unknown;
+  try {
+    models = (JSON.parse(json) as { models?: unknown }).models;
+  } catch {
+    return {};
+  }
+  const out: Record<string, ThinkingInfo> = {};
+  if (!Array.isArray(models)) return out;
+  for (const model of models as Array<Record<string, unknown> | null>) {
+    const slug = model?.slug;
+    if (!isToolModelId(slug) || !Array.isArray(model?.supported_reasoning_levels)) continue;
+    const levels: string[] = [];
+    for (const entry of model.supported_reasoning_levels as Array<{ effort?: unknown } | null>) {
+      const effort = entry?.effort;
+      if (isThinkingLevel(effort) && !levels.includes(effort)) levels.push(effort);
+    }
+    if (levels.length === 0) continue;
+    const fallback = model.default_reasoning_level;
+    out[slug] = { thinkingLevels: levels, ...(isThinkingLevel(fallback) ? { defaultThinking: fallback } : {}) };
+  }
+  return out;
+}
+
+export function readCodexModelThinking(env: Env = process.env): Record<string, ThinkingInfo> {
+  const text = readText(path.join(codexHome(env), "models_cache.json"));
+  return text ? codexModelThinking(text) : {};
 }
 
 // The names of the MCP servers in config.toml, so a call can turn them off.
@@ -238,9 +325,25 @@ export type CliToolDetector = () => CliTool[];
 export function detectCliTools(env: Env = process.env, paths: ToolPaths = {}): CliTool[] {
   const tools: CliTool[] = [];
   const claude = findClaudeBin(env, paths);
-  if (claude) tools.push({ id: CLAUDE_CODE_ID, bin: claude, configuredModel: claudeConfiguredModel(env) });
+  if (claude) {
+    tools.push({
+      id: CLAUDE_CODE_ID,
+      bin: claude,
+      configuredModel: claudeConfiguredModel(env),
+      configuredThinking: claudeConfiguredEffort(env),
+    });
+  }
   const codex = findCodexBin(env, paths);
-  if (codex) tools.push({ id: CODEX_ID, bin: codex, configuredModel: codexModelFromToml(readCodexConfig(env)) });
+  if (codex) {
+    const toml = readCodexConfig(env);
+    tools.push({
+      id: CODEX_ID,
+      bin: codex,
+      configuredModel: codexModelFromToml(toml),
+      configuredThinking: codexEffortFromToml(toml),
+      modelThinking: readCodexModelThinking(env),
+    });
+  }
   return tools;
 }
 
@@ -279,23 +382,36 @@ export function findCliTool(id: string, now?: number): CliTool | null {
 // openaiModels: the OpenAI models Codex can run with, from the gateway list,
 // with ids as Codex takes them.
 export function cliModelInfo(tool: CliTool, openaiModels: ToolModel[] = CODEX_TOOL_MODELS): ModelInfo {
+  const configured = isThinkingLevel(tool.configuredThinking) ? tool.configuredThinking : undefined;
   if (tool.id === CLAUDE_CODE_ID) {
     const model = seenModels.get(CLAUDE_CODE_ID) ?? tool.configuredModel;
+    // Every alias takes the same levels, so they are given once, on the tool.
     return {
       id: CLAUDE_CODE_ID,
       name: "Claude Code",
       maker: "anthropic",
       defaultModel: formatClaudeModel(model),
       toolModels: CLAUDE_TOOL_MODELS.map((m) => ({ ...m })),
+      thinkingLevels: [...CLAUDE_THINKING_LEVELS],
+      ...(configured ? { defaultThinking: configured } : {}),
     };
   }
   const model = seenModels.get(CODEX_ID) ?? tool.configuredModel;
+  // model_reasoning_effort in config.toml applies to every model. Without it,
+  // each model starts on its own default level.
+  const thinkingOf = (id: string | null): ThinkingInfo => {
+    const cached = id ? tool.modelThinking?.[id] : undefined;
+    const levels = cached?.thinkingLevels?.length ? cached.thinkingLevels : CODEX_THINKING_LEVELS;
+    const fallback = configured ?? cached?.defaultThinking;
+    return { thinkingLevels: [...levels], ...(fallback ? { defaultThinking: fallback } : {}) };
+  };
   return {
     id: CODEX_ID,
     name: "Codex",
     maker: "openai",
     defaultModel: model || DEFAULT_MODEL_LABEL,
-    toolModels: codexToolModels(openaiModels, tool.configuredModel),
+    toolModels: codexToolModels(openaiModels, tool.configuredModel).map((m) => ({ ...m, ...thinkingOf(m.id) })),
+    ...thinkingOf(model),
   };
 }
 

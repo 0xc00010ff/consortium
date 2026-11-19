@@ -35,6 +35,13 @@ export interface ModelInfo {
   // For a command line tool: the models the host can run it with instead of
   // its default. Absent for gateway models.
   toolModels?: ToolModel[];
+  // The thinking levels the model offers, from least to most, such as
+  // ["low", "medium", "high", "xhigh", "max"]. For a command line tool, the
+  // levels of its default model. Absent or empty means the host cannot
+  // choose a level for it.
+  thinkingLevels?: string[];
+  // The level the model or tool uses when none is chosen, where it is known.
+  defaultThinking?: string;
 }
 
 // A model choice for a command line tool. `id` is what the tool accepts,
@@ -42,6 +49,9 @@ export interface ModelInfo {
 export interface ToolModel {
   id: string;
   name: string;
+  // As in ModelInfo. Absent means the tool's own levels and default.
+  thinkingLevels?: string[];
+  defaultThinking?: string;
 }
 
 export interface Seat {
@@ -57,6 +67,9 @@ export interface Seat {
   // For a command line tool: the ToolModel id to run it with. Absent means
   // the tool's own default.
   toolModel?: string;
+  // The thinking level to run the model with, one of its thinkingLevels.
+  // Absent means the model's or the tool's own default.
+  thinking?: string;
   instructions?: string; // the host's prompt for this agent alone
   // false means the agent sits out the rounds until the host turns it back
   // on. It stays at the table, keeps its replies and its private conversation,
@@ -73,6 +86,7 @@ export interface Arbiter {
   maker: Maker;
   browsing: boolean; // default false
   toolModel?: string; // as for a Seat
+  thinking?: string; // as for a Seat
   instructions: string;
 }
 
@@ -262,6 +276,9 @@ export interface SpeakRequest {
   // For a command line tool: the ToolModel id to run it with. The server
   // ignores it for gateway models.
   toolModel?: string;
+  // The thinking level, such as "high" or "max". Absent means the model's or
+  // the tool's own default.
+  thinking?: string;
   instructions: string;
   messages: ChatTurn[];
   browsing: boolean;

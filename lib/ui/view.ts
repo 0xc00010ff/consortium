@@ -176,12 +176,67 @@ export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
 }
 
 // The participant with a new model. A tool's model choice belongs to that
-// tool, so it is cleared and the new model starts from its own default.
+// tool, so it is cleared and the new model starts from its own default. The
+// thinking level stays when the new model offers it too.
 export function withModel<T extends Seat | Arbiter>(p: T, models: ModelInfo[], modelId: string): T {
   const m = modelInfo(models, modelId);
   if (!m) return p;
   if (m.id === p.modelId) return p;
-  return { ...p, modelId: m.id, modelName: m.name, maker: m.maker, toolModel: undefined };
+  return keepThinking({ ...p, modelId: m.id, modelName: m.name, maker: m.maker, toolModel: undefined }, models);
+}
+
+// The participant with a new model for its command line tool, keeping the
+// thinking level when that model offers it.
+export function withToolModel<T extends Seat | Arbiter>(p: T, models: ModelInfo[], toolModel: string | undefined): T {
+  return keepThinking({ ...p, toolModel }, models);
+}
+
+function keepThinking<T extends Seat | Arbiter>(p: T, models: ModelInfo[]): T {
+  if (!p.thinking || thinkingChoices(p, models).levels.includes(p.thinking)) return p;
+  return { ...p, thinking: undefined };
+}
+
+// ---------- thinking ----------
+
+export interface ThinkingChoices {
+  levels: string[]; // the levels the host can choose, from least to most
+  defaultLevel?: string; // the level used when none is chosen, where known
+}
+
+// The thinking levels for a participant's model. For a command line tool, the
+// levels of its chosen model, or the tool's own when that model lists none.
+export function thinkingChoices(p: Pick<Seat, "modelId" | "toolModel">, models: ModelInfo[]): ThinkingChoices {
+  const m = modelInfo(models, p.modelId);
+  if (!m) return { levels: [] };
+  const own = p.toolModel ? m.toolModels?.find((t) => t.id === p.toolModel) : undefined;
+  const source = own?.thinkingLevels ? own : m;
+  return { levels: source.thinkingLevels ?? [], defaultLevel: source.defaultThinking };
+}
+
+// The thinking select shows when the model offers levels, or when the
+// participant has a level its model no longer lists, so the host can see it.
+export function showsThinking(p: Pick<Seat, "modelId" | "toolModel" | "thinking">, models: ModelInfo[]): boolean {
+  return thinkingChoices(p, models).levels.length > 0 || Boolean(p.thinking);
+}
+
+// A level as a word in a sentence: "high", "extra high".
+function levelWords(level: string): string {
+  if (level === "xhigh") return "extra high";
+  return level.replace(/[_-]+/g, " ").trim().toLowerCase();
+}
+
+// The option for a level: "No thinking", "High thinking", "Extra high
+// thinking". A level without a known name reads the same way.
+export function thinkingLabel(level: string): string {
+  if (level === "none") return "No thinking";
+  const words = levelWords(level);
+  return words ? `${words[0].toUpperCase()}${words.slice(1)} thinking` : "Thinking";
+}
+
+// The option that stores no level: "Default thinking", or "Default thinking
+// (high)" when the default is known.
+export function defaultThinkingLabel(level: string | undefined): string {
+  return level ? `Default thinking (${levelWords(level)})` : "Default thinking";
 }
 
 // ---------- copy ----------

@@ -20,6 +20,8 @@ import type {
 import { SUMMARIZER_INSTRUCTIONS, SUMMARIZER_NAME } from "@/lib/engine/table";
 import { isBusy } from "./view";
 
+const LEVELS = ["low", "medium", "high", "xhigh", "max"];
+
 export const FIXTURE_MODELS: ModelsResponse = {
   mock: true,
   models: [
@@ -34,6 +36,8 @@ export const FIXTURE_MODELS: ModelsResponse = {
         { id: "sonnet", name: "Sonnet" },
         { id: "haiku", name: "Haiku" },
       ],
+      thinkingLevels: LEVELS,
+      defaultThinking: "high",
     },
     {
       id: "cli/codex",
@@ -41,21 +45,23 @@ export const FIXTURE_MODELS: ModelsResponse = {
       maker: "openai",
       defaultModel: "gpt-6-astra",
       toolModels: [
-        { id: "gpt-6-astra", name: "GPT-6 Astra" },
-        { id: "gpt-6-pro", name: "GPT-6 Pro" },
-        { id: "gpt-6-sol", name: "GPT-6 Sol" },
-        { id: "gpt-6-luna", name: "GPT-6 Luna" },
+        { id: "gpt-6-astra", name: "GPT-6 Astra", thinkingLevels: [...LEVELS, "ultra"], defaultThinking: "medium" },
+        { id: "gpt-6-pro", name: "GPT-6 Pro", thinkingLevels: [...LEVELS, "ultra"], defaultThinking: "medium" },
+        { id: "gpt-6-sol", name: "GPT-6 Sol", thinkingLevels: [...LEVELS, "ultra"], defaultThinking: "medium" },
+        { id: "gpt-6-luna", name: "GPT-6 Luna", thinkingLevels: LEVELS, defaultThinking: "medium" },
       ],
+      thinkingLevels: [...LEVELS, "ultra"],
+      defaultThinking: "medium",
     },
-    { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", maker: "anthropic" },
-    { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", maker: "anthropic" },
-    { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", maker: "anthropic" },
-    { id: "openai/gpt-6-astra", name: "GPT-6 Astra", maker: "openai" },
-    { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", maker: "openai" },
-    { id: "openai/gpt-6-luna", name: "GPT-6 Luna", maker: "openai" },
-    { id: "google/gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview", maker: "google" },
-    { id: "google/gemini-3.8-flash", name: "Gemini 3.8 Flash", maker: "google" },
-    { id: "spacexai/grok-4.7", name: "Grok 4.7", maker: "xai" },
+    { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", maker: "anthropic", thinkingLevels: LEVELS },
+    { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", maker: "anthropic", thinkingLevels: LEVELS },
+    { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", maker: "anthropic", thinkingLevels: ["none", ...LEVELS] },
+    { id: "openai/gpt-6-astra", name: "GPT-6 Astra", maker: "openai", thinkingLevels: LEVELS },
+    { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", maker: "openai", thinkingLevels: LEVELS },
+    { id: "openai/gpt-6-luna", name: "GPT-6 Luna", maker: "openai", thinkingLevels: ["none", ...LEVELS] },
+    { id: "google/gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview", maker: "google", thinkingLevels: ["low", "medium", "high"] },
+    { id: "google/gemini-3.8-flash", name: "Gemini 3.8 Flash", maker: "google", thinkingLevels: ["low", "medium", "high"] },
+    { id: "spacexai/grok-4.7", name: "Grok 4.7", maker: "xai", thinkingLevels: ["low", "medium", "high", "xhigh"] },
     { id: "spacexai/grok-4.1-fast-reasoning", name: "Grok 4.1 Fast Reasoning", maker: "xai" },
   ],
   defaults: {
